@@ -254,7 +254,8 @@ async def db_get_all_with_gs():
     return await db_pool.fetch(
         """SELECT discord_id, discord_username, gear_ap, gear_aap, gear_dp
            FROM users
-           WHERE gear_ap IS NOT NULL AND gear_aap IS NOT NULL AND gear_dp IS NOT NULL"""
+           WHERE gear_ap IS NOT NULL AND gear_aap IS NOT NULL AND gear_dp IS NOT NULL
+             AND discord_id IS NOT NULL"""
     )
 
 @bot.command()
