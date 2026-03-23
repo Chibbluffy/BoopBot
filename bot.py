@@ -1,4 +1,4 @@
-import discord, asyncio, os, json, math, asyncpg
+import discord, asyncio, os, json, math, asyncpg, traceback
 from tabulate import tabulate
 from discord.ext import commands, tasks
 from datetime import datetime, timedelta, timezone
@@ -227,13 +227,14 @@ async def db_upsert_gear(discord_id: str, discord_username: str, **fields):
     fields = {k: v for k, v in fields.items() if k in _ALLOWED_GEAR_COLS}
     if not fields:
         return
+    username = f'discord_{discord_id}'
     col_list = ', '.join(fields.keys())
-    placeholders = ', '.join(f'${i + 3}' for i in range(len(fields)))
+    placeholders = ', '.join(f'${i + 4}' for i in range(len(fields)))
     set_clause = ', '.join(f'{k} = EXCLUDED.{k}' for k in fields)
-    params = [discord_id, discord_username] + list(fields.values())
+    params = [discord_id, discord_username, username] + list(fields.values())
     sql = f"""
         INSERT INTO users (discord_id, discord_username, username, password_hash, role, {col_list})
-        VALUES ($1, $2, 'discord_' || $1, '', 'member', {placeholders})
+        VALUES ($1, $2, $3, '', 'member', {placeholders})
         ON CONFLICT (discord_id) DO UPDATE SET
             discord_username = EXCLUDED.discord_username,
             {set_clause},
@@ -587,6 +588,13 @@ def splitReplyToLessThan2000(reply):
         if reply[i] == ' ':
             return reply[:i], reply[i:]
     return reply[:1999], reply[1999:]
+
+@bot.event
+async def on_command_error(ctx, error):
+    # Unwrap CheckFailure / CommandInvokeError wrappers to get the real cause
+    error = getattr(error, 'original', error)
+    print(f"[ERROR] Command '{ctx.command}' raised an exception: {error}")
+    traceback.print_exception(type(error), error, error.__traceback__)
 
 @bot.event
 async def on_ready():

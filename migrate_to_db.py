@@ -66,14 +66,15 @@ async def migrate(gear_file: str, gs_file: str):
             skipped += 1
             continue
 
+        username     = f'discord_{discord_id}'
         col_list     = ', '.join(fields.keys())
-        placeholders = ', '.join(f'${i + 2}' for i in range(len(fields)))
+        placeholders = ', '.join(f'${i + 3}' for i in range(len(fields)))
         set_clause   = ', '.join(f'{k} = EXCLUDED.{k}' for k in fields)
-        params       = [discord_id] + list(fields.values())
+        params       = [discord_id, username] + list(fields.values())
 
         sql = f"""
             INSERT INTO users (discord_id, username, password_hash, role, {col_list})
-            VALUES ($1, 'discord_' || $1, '', 'member', {placeholders})
+            VALUES ($1, $2, '', 'member', {placeholders})
             ON CONFLICT (discord_id) DO UPDATE SET
                 {set_clause},
                 updated_at = NOW()
