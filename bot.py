@@ -1,4 +1,4 @@
-import discord, asyncio, os, json, math, asyncpg, traceback
+import discord, asyncio, os, json, math, asyncpg, traceback, random
 from tabulate import tabulate
 from discord.ext import commands, tasks
 from datetime import datetime, timedelta, timezone
@@ -308,24 +308,28 @@ def calculate_gs(ap, aap, dp):
 @bot.command()
 async def setap(ctx, ap: int):
     """Saves the AP stat for the user."""
+    print(f"setap command: {ctx.author.name} ({ctx.author.id}) -> AP={ap}")
     await db_upsert_gear(str(ctx.author.id), ctx.author.name, gear_ap=ap)
     await ctx.send(f"AP set to {ap} for {ctx.author.name}.")
 
 @bot.command()
 async def setaap(ctx, aap: int):
     """Saves the AAP stat for the user."""
+    print(f"setaap command: {ctx.author.name} ({ctx.author.id}) -> AAP={aap}")
     await db_upsert_gear(str(ctx.author.id), ctx.author.name, gear_aap=aap)
     await ctx.send(f"AAP set to {aap} for {ctx.author.name}.")
 
 @bot.command()
 async def setdp(ctx, dp: int):
     """Saves the DP stat for the user."""
+    print(f"setdp command: {ctx.author.name} ({ctx.author.id}) -> DP={dp}")
     await db_upsert_gear(str(ctx.author.id), ctx.author.name, gear_dp=dp)
     await ctx.send(f"DP set to {dp} for {ctx.author.name}.")
 
 @bot.command()
 async def showgs(ctx):
     """Displays the AP, AAP, DP, and GS for the user."""
+    print(f"showgs command: {ctx.author.name} ({ctx.author.id})")
     row = await db_get_user_gear(str(ctx.author.id))
     if row and row['gear_ap'] is not None and row['gear_aap'] is not None and row['gear_dp'] is not None:
         ap, aap, dp = row['gear_ap'], row['gear_aap'], row['gear_dp']
@@ -340,6 +344,7 @@ async def gs(ctx):
     await showgs(ctx)
 
 async def create_table(ctx, sort_on_col, reverse):
+    print(f"create_table: requested by {ctx.author.name} ({ctx.author.id}), sort_col={sort_on_col}, reverse={reverse}")
     rows = await db_get_all_with_gs()
     leaderboard = []
     for row in rows:
@@ -359,6 +364,7 @@ async def create_table(ctx, sort_on_col, reverse):
 @bot.command(aliases=['gsguild', 'guildgs'])
 async def showguildgs(ctx):
     """Displays the GS of everyone in guild who has saved gs."""
+    print(f"showguildgs command: {ctx.author.name} ({ctx.author.id})")
     leaderboard = await create_table(ctx, 0, False)
 
     if not leaderboard:
@@ -388,6 +394,7 @@ async def showguildgs(ctx):
 @bot.command()
 async def gslb(ctx):
     """Displays the ranking of GS of everyone in guild who has saved gs."""
+    print(f"gslb command: {ctx.author.name} ({ctx.author.id})")
     leaderboard = await create_table(ctx, 4, True) # Sorted by GS
     if not leaderboard:
         return
@@ -398,6 +405,7 @@ async def gslb(ctx):
 @bot.command()
 async def oldgslb(ctx):
     """Displays the ranking of GS of everyone in guild who has saved gs."""
+    print(f"oldgslb command: {ctx.author.name} ({ctx.author.id})")
     leaderboard = await create_table(ctx, 4, True)
 
     headers = ["User", "AP", "AAP", "DP", "GS"]
@@ -468,6 +476,57 @@ class LeaderboardPagination(discord.ui.View):
         if self.current_page < self.total_pages - 1:
             self.current_page += 1
             await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+################# 8BALL #################
+_8BALL_RESPONSES = [
+    # Positive
+    "It is certain.",
+    "It is decidedly so.",
+    "Without a doubt.",
+    "Yes, definitely.",
+    "You may rely on it.",
+    "As I see it, yes.",
+    "Most likely.",
+    "Outlook good.",
+    "Yes.",
+    "Signs point to yes.",
+    # Neutral
+    "Reply hazy, try again.",
+    "Ask again later.",
+    "Better not tell you now.",
+    "Cannot predict now.",
+    "Concentrate and ask again.",
+    # Negative
+    "Don't count on it.",
+    "My reply is no.",
+    "My sources say no.",
+    "Outlook not so good.",
+    "Very doubtful.",
+]
+
+_8BALL_CACHE = {}  # (user_id, normalized_question) -> (response, expiry)
+_8BALL_TTL = timedelta(hours=1)
+
+@bot.command(name='8ball')
+async def eightball(ctx, *, question: str = None):
+    """Ask the magic 8-ball a question."""
+    print(f"8ball command: {ctx.author.name} ({ctx.author.id}) -> '{question}'")
+    if not question:
+        await ctx.send("You need to ask a question! Usage: `!8ball <your question>`")
+        return
+
+    normalized = question.lower().strip().rstrip('?').strip()
+    key = (ctx.author.id, normalized)
+    now = datetime.now(timezone.utc)
+
+    cached = _8BALL_CACHE.get(key)
+    if cached and now < cached[1]:
+        response = cached[0]
+    else:
+        response = random.choice(_8BALL_RESPONSES)
+        _8BALL_CACHE[key] = (response, now + _8BALL_TTL)
+
+    await ctx.send(f"🎱 {response}")
 
 ################# CHATBOT #################
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
