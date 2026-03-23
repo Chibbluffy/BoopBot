@@ -1,4 +1,4 @@
-import discord, asyncio, os, json, math
+import discord, asyncio, os, json, math, asyncpg
 from tabulate import tabulate
 from discord.ext import commands, tasks
 from datetime import datetime, timedelta, timezone
@@ -21,9 +21,9 @@ bot = commands.Bot(command_prefix='!', intents=intents, activity=discord.Game(na
 CHEST_INFO_CHANNEL_ID = int(os.getenv("CHEST_INFO_CHANNEL_ID"))
 CHEST_INFO_MESSAGE_ID = int(os.getenv("CHEST_INFO_MESSAGE_ID"))
 
-GEAR_DATA_FILE = os.getenv("GEAR_DATA_FILE")
-GS_DATA_FILE = os.getenv("GS_DATA_FILE")
 CHEST_EVENTS_FILE = os.getenv("CHEST_EVENTS_FILE")
+DATABASE_URL = os.getenv("DATABASE_URL")
+db_pool = None
 
 global next_chest_events
 next_chest_events = {}
@@ -219,17 +219,42 @@ async def chest(ctx, server: str, server_number: str, time_str: str):
 '''
 
 ################# GEAR #################
-def load_gear_data():
-    """Loads user gear data from the JSON file."""
-    if os.path.exists(GEAR_DATA_FILE):
-        with open(GEAR_DATA_FILE, 'r') as f:
-            return json.load(f)
-    return {}
+_ALLOWED_GEAR_COLS = {'gear_ap', 'gear_aap', 'gear_dp', 'gear_image_url'}
 
-def save_gear_data(gear_data):
-    """Saves user gear data to the JSON file."""
-    with open(GEAR_DATA_FILE, 'w') as f:
-        json.dump(gear_data, f, indent=4)
+async def db_upsert_gear(discord_id: str, discord_username: str, **fields):
+    """Upsert whitelisted gear fields for a user by discord_id.
+    Creates a stub record if the discord_id doesn't exist yet."""
+    fields = {k: v for k, v in fields.items() if k in _ALLOWED_GEAR_COLS}
+    if not fields:
+        return
+    col_list = ', '.join(fields.keys())
+    placeholders = ', '.join(f'${i + 3}' for i in range(len(fields)))
+    set_clause = ', '.join(f'{k} = EXCLUDED.{k}' for k in fields)
+    params = [discord_id, discord_username] + list(fields.values())
+    sql = f"""
+        INSERT INTO users (discord_id, discord_username, username, password_hash, role, {col_list})
+        VALUES ($1, $2, 'discord_' || $1, '', 'member', {placeholders})
+        ON CONFLICT (discord_id) DO UPDATE SET
+            discord_username = EXCLUDED.discord_username,
+            {set_clause},
+            updated_at = NOW()
+    """
+    await db_pool.execute(sql, *params)
+
+async def db_get_user_gear(discord_id: str):
+    """Returns a row with gear fields for the given discord_id, or None."""
+    return await db_pool.fetchrow(
+        "SELECT gear_ap, gear_aap, gear_dp, gear_image_url FROM users WHERE discord_id = $1",
+        discord_id
+    )
+
+async def db_get_all_with_gs():
+    """Returns all users who have all three gear score fields set."""
+    return await db_pool.fetch(
+        """SELECT discord_id, discord_username, gear_ap, gear_aap, gear_dp
+           FROM users
+           WHERE gear_ap IS NOT NULL AND gear_aap IS NOT NULL AND gear_dp IS NOT NULL"""
+    )
 
 @bot.command()
 async def gear(ctx, *, image_url: str = None):
@@ -237,34 +262,29 @@ async def gear(ctx, *, image_url: str = None):
     Can also save an attached image if no URL is provided.
     """
     print("gear command")
-    user_id_requesting = str(ctx.author.id)
-    gear_data = load_gear_data()
+    discord_id = str(ctx.author.id)
+    discord_username = ctx.author.name
     attached_image_url = None
 
     if ctx.message.attachments:
-        # If there's an attachment, use the first one's URL
         attached_image_url = ctx.message.attachments[0].url
+
     if image_url and 'http' in image_url and '<@' not in image_url:
-        # Save or update the URL provided as text
         print('save url')
-        gear_data[user_id_requesting] = image_url
-        save_gear_data(gear_data)
+        await db_upsert_gear(discord_id, discord_username, gear_image_url=image_url)
         await ctx.send(f"Gear image URL saved/updated for {ctx.author.name}.")
     elif attached_image_url:
         print('save attachment url')
-        # Save or update the URL of the attached image
-        gear_data[user_id_requesting] = attached_image_url
-        save_gear_data(gear_data)
+        await db_upsert_gear(discord_id, discord_username, gear_image_url=attached_image_url)
         await ctx.send(f"Gear image from attachment saved/updated for {ctx.author.name}.")
     elif image_url and '<@' in image_url:
         print("checkgear")
         await checkgear(ctx, ctx.guild.get_member(int(image_url[2:-1])))
     else:
-        # Retrieve the URL for the command sender if no arguments are provided
         print("show gear")
-        if user_id_requesting in gear_data:
-            saved_url = gear_data[user_id_requesting]
-            await ctx.reply(f"{saved_url}")
+        row = await db_get_user_gear(discord_id)
+        if row and row['gear_image_url']:
+            await ctx.reply(row['gear_image_url'])
         else:
             await ctx.reply("You have not saved a gear image URL yet. Use `!gear <image_url>` or attach an image to save one.")
 
@@ -272,74 +292,41 @@ async def gear(ctx, *, image_url: str = None):
 async def checkgear(ctx, target_user: discord.Member):
     """Retrieves the gear image URL for a mentioned user."""
     print('checkgear command')
-    target_user_id = str(target_user.id)
-    gear_data = load_gear_data()
-
-    if target_user_id in gear_data:
-        saved_url = gear_data[target_user_id]
-        await ctx.reply(f"{saved_url}")
+    row = await db_get_user_gear(str(target_user.id))
+    if row and row['gear_image_url']:
+        await ctx.reply(row['gear_image_url'])
     else:
         await ctx.reply(f"{target_user.name} has not saved a gear image URL yet.")
 
 
 ################# GS #################
-def load_gs_data():
-    """Loads gear score data from the JSON file."""
-    if os.path.exists(GS_DATA_FILE):
-        with open(GS_DATA_FILE, 'r') as f:
-            return json.load(f)
-    return {}
-
-def save_gs_data(gs_data):
-    """Saves gear score data to the JSON file."""
-    with open(GS_DATA_FILE, 'w') as f:
-        json.dump(gs_data, f, indent=4)
-
 def calculate_gs(ap, aap, dp):
     return max(ap, aap) + dp
 
 @bot.command()
 async def setap(ctx, ap: int):
     """Saves the AP stat for the user."""
-    user_id = str(ctx.author.id)
-    gs_data = load_gs_data()
-    if user_id not in gs_data:
-        gs_data[user_id] = {}
-    gs_data[user_id]["ap"] = ap
-    save_gs_data(gs_data)
+    await db_upsert_gear(str(ctx.author.id), ctx.author.name, gear_ap=ap)
     await ctx.send(f"AP set to {ap} for {ctx.author.name}.")
 
 @bot.command()
 async def setaap(ctx, aap: int):
     """Saves the AAP stat for the user."""
-    user_id = str(ctx.author.id)
-    gs_data = load_gs_data()
-    if user_id not in gs_data:
-        gs_data[user_id] = {}
-    gs_data[user_id]["aap"] = aap
-    save_gs_data(gs_data)
+    await db_upsert_gear(str(ctx.author.id), ctx.author.name, gear_aap=aap)
     await ctx.send(f"AAP set to {aap} for {ctx.author.name}.")
 
 @bot.command()
 async def setdp(ctx, dp: int):
     """Saves the DP stat for the user."""
-    user_id = str(ctx.author.id)
-    gs_data = load_gs_data()
-    if user_id not in gs_data:
-        gs_data[user_id] = {}
-    gs_data[user_id]["dp"] = dp
-    save_gs_data(gs_data)
+    await db_upsert_gear(str(ctx.author.id), ctx.author.name, gear_dp=dp)
     await ctx.send(f"DP set to {dp} for {ctx.author.name}.")
 
 @bot.command()
 async def showgs(ctx):
     """Displays the AP, AAP, DP, and GS for the user."""
-    user_id = str(ctx.author.id)
-    gs_data = load_gs_data()
-    if user_id in gs_data and "ap" in gs_data[user_id] and "aap" in gs_data[user_id] and "dp" in gs_data[user_id]:
-        ap = gs_data[user_id]["ap"]
-        aap = gs_data[user_id]["aap"]
-        dp = gs_data[user_id]["dp"]
+    row = await db_get_user_gear(str(ctx.author.id))
+    if row and row['gear_ap'] is not None and row['gear_aap'] is not None and row['gear_dp'] is not None:
+        ap, aap, dp = row['gear_ap'], row['gear_aap'], row['gear_dp']
         gs = calculate_gs(ap, aap, dp)
         await ctx.send(f"**{ctx.author.name}'s Gear Score:**\nAP: {ap}\nAAP: {aap}\nDP: {dp}\nGS: {gs}")
     else:
@@ -351,23 +338,19 @@ async def gs(ctx):
     await showgs(ctx)
 
 async def create_table(ctx, sort_on_col, reverse):
-    gs_data = load_gs_data()
+    rows = await db_get_all_with_gs()
     leaderboard = []
-    for user_id, stats in gs_data.items():
-        if "ap" in stats and "aap" in stats and "dp" in stats:
-            user = ctx.guild.get_member(int(user_id))
-            if user:
-                ap = stats["ap"]
-                aap = stats["aap"]
-                dp = stats["dp"]
-                gs = calculate_gs(ap, aap, dp)
-                leaderboard.append((user.name, ap, aap, dp, gs))
+    for row in rows:
+        ap, aap, dp = row['gear_ap'], row['gear_aap'], row['gear_dp']
+        gs_val = calculate_gs(ap, aap, dp)
+        member = ctx.guild.get_member(int(row['discord_id']))
+        name = member.name if member else (row['discord_username'] or row['discord_id'])
+        leaderboard.append((name, ap, aap, dp, gs_val))
 
     if not leaderboard:
         await ctx.send("No gear score data available.")
-        return
+        return None
 
-    # Sort the table Alphabetically (the 5th element in each tuple)
     leaderboard.sort(key=lambda x: x[sort_on_col], reverse=reverse)
     return leaderboard
 
@@ -636,7 +619,10 @@ async def on_ready():
             print(f"Error: Info channel with ID {INFO_CHANNEL_ID} not found.")
 
 async def main():
+    global db_pool
     async with bot:
+        db_pool = await asyncpg.create_pool(DATABASE_URL)
+        print("Database pool created.")
         await bot.start(TOKEN)
 
 if __name__ == '__main__':
