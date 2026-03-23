@@ -3,3 +3,4 @@ tabulate
 dotenv
 requests
 beautifulsoup4
+google-generativeai
