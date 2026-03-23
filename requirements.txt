@@ -1,1 +1,5 @@
 discord.py
+tabulate
+dotenv
+requests
+beautifulsoup4

@@ -1,6 +1,12 @@
 # BoopBot
 
 ## Commands
+
+#### Chatbot
+- Mention the bot or reply to one of its messages to chat and get a response
+- The initial context is in a variable named `context` in `bot.py` if you need to change anything. 
+- It is currently using google gemini models, and 
+
 #### Events
 - Create Event
 	- Format
@@ -49,9 +55,16 @@
 	!setdp <number>
 	```
 
+- Show GS
+	- Format
+	```
+	!showgs
+	```
 - Show leaderboard
 	- Format
 	```
 	!showgsleaderboard
 	```
-	
+
+#### Chest Timer Management
+- 
