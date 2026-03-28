@@ -129,23 +129,30 @@ async def event_reminder():
                                BETWEEN $1 AND $2
                     """, window_start, window_end)
 
+                    print(f"[cal_reminder] {minutes_ahead}min window [{window_start} - {window_end}]: {len(cal_events)} event(s) found")
+
                     for cal_event in cal_events:
                         discord_ids = [d for d in (cal_event['discord_ids'] or []) if d is not None]
+                        print(f"[cal_reminder] Event '{cal_event['title']}' has {len(discord_ids)} interested user(s) with discord_id: {discord_ids}")
                         remind_channel = discord.utils.get(guild.text_channels, name=NOTIFY_CHANNEL)
                         if not remind_channel:
+                            print(f"[cal_reminder] Could not find channel '{NOTIFY_CHANNEL}' in guild '{guild.name}'")
                             continue
                         mentions = []
                         for discord_id in discord_ids:
                             member = guild.get_member(int(discord_id))
                             if member:
                                 mentions.append(member.mention)
+                            else:
+                                print(f"[cal_reminder] Could not find member with discord_id {discord_id} in guild cache")
                         mention_str = " ".join(mentions)
                         message = f"Reminder! {cal_event['title']} is starting in {minutes_ahead} minutes!"
                         if mention_str:
                             message += f"\n{mention_str}"
                         await remind_channel.send(message)
             except Exception as e:
-                print(f"Error checking calendar event reminders: {e}")
+                print(f"[cal_reminder] Error: {e}")
+                traceback.print_exc()
     except Exception as e:
         print(f"Error in event_reminder loop: {e}")
 
