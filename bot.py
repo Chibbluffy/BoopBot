@@ -111,6 +111,41 @@ async def event_reminder():
                                 await remind_channel.send(message)
                     except Exception as e:
                         print(f"Error processing event {event.id}: {e}")
+
+            # Non-Discord calendar events from the website database
+            try:
+                for minutes_ahead in [30, 5]:
+                    window_start = now + timedelta(minutes=minutes_ahead)
+                    window_end   = window_start + timedelta(minutes=1)
+                    cal_events = await db_pool.fetch("""
+                        SELECT ce.id, ce.title,
+                               array_agg(u.discord_id) FILTER (WHERE u.discord_id IS NOT NULL) AS discord_ids
+                        FROM calendar_events ce
+                        LEFT JOIN calendar_event_interests cei ON cei.event_id = ce.id
+                        LEFT JOIN users u ON u.id = cei.user_id
+                        WHERE ce.event_time IS NOT NULL AND ce.event_timezone IS NOT NULL
+                        GROUP BY ce.id, ce.title
+                        HAVING (ce.event_date + ce.event_time) AT TIME ZONE ce.event_timezone
+                               BETWEEN $1 AND $2
+                    """, window_start, window_end)
+
+                    for cal_event in cal_events:
+                        discord_ids = [d for d in (cal_event['discord_ids'] or []) if d is not None]
+                        remind_channel = discord.utils.get(guild.text_channels, name=NOTIFY_CHANNEL)
+                        if not remind_channel:
+                            continue
+                        mentions = []
+                        for discord_id in discord_ids:
+                            member = guild.get_member(int(discord_id))
+                            if member:
+                                mentions.append(member.mention)
+                        mention_str = " ".join(mentions)
+                        message = f"Reminder! {cal_event['title']} is starting in {minutes_ahead} minutes!"
+                        if mention_str:
+                            message += f"\n{mention_str}"
+                        await remind_channel.send(message)
+            except Exception as e:
+                print(f"Error checking calendar event reminders: {e}")
     except Exception as e:
         print(f"Error in event_reminder loop: {e}")
 
