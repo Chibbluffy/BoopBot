@@ -337,12 +337,25 @@ async def checkgear(ctx, target_user: discord.Member):
 
 
 ################# GS #################
+INVALID_STAT_RESPONSES = [
+    "Bro really said {value}. Be serious.",
+    "There is no way you actually typed that with a straight face.",
+    "I don't know what game you think you're playing, but it's not this one.",
+    "Cute number. Put in a real one.",
+    "lmaooo no.",
+    "I've seen better numbers from a keyboard smash.",
+    "Sir/Ma'am this is a Wendy's.",
+]
+
 def calculate_gs(ap, aap, dp):
     return max(ap, aap) + dp
 
 @bot.command()
 async def setap(ctx, ap: int):
     """Saves the AP stat for the user."""
+    if ap < 0 or ap > 666:
+        await ctx.send(random.choice(INVALID_STAT_RESPONSES).format(value=ap))
+        return
     print(f"setap command: {ctx.author.name} ({ctx.author.id}) -> AP={ap}")
     await db_upsert_gear(str(ctx.author.id), ctx.author.name, gear_ap=ap)
     await ctx.send(f"AP set to {ap} for {ctx.author.name}.")
@@ -350,6 +363,9 @@ async def setap(ctx, ap: int):
 @bot.command()
 async def setaap(ctx, aap: int):
     """Saves the AAP stat for the user."""
+    if aap < 0 or aap > 666:
+        await ctx.send(random.choice(INVALID_STAT_RESPONSES).format(value=aap))
+        return
     print(f"setaap command: {ctx.author.name} ({ctx.author.id}) -> AAP={aap}")
     await db_upsert_gear(str(ctx.author.id), ctx.author.name, gear_aap=aap)
     await ctx.send(f"AAP set to {aap} for {ctx.author.name}.")
@@ -357,6 +373,9 @@ async def setaap(ctx, aap: int):
 @bot.command()
 async def setdp(ctx, dp: int):
     """Saves the DP stat for the user."""
+    if dp < 0 or dp > 911:
+        await ctx.send(random.choice(INVALID_STAT_RESPONSES).format(value=dp))
+        return
     print(f"setdp command: {ctx.author.name} ({ctx.author.id}) -> DP={dp}")
     await db_upsert_gear(str(ctx.author.id), ctx.author.name, gear_dp=dp)
     await ctx.send(f"DP set to {dp} for {ctx.author.name}.")
