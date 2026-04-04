@@ -259,29 +259,44 @@ _ALLOWED_GEAR_COLS = {'gear_ap', 'gear_aap', 'gear_dp', 'gear_image_url'}
 
 async def db_upsert_gear(discord_id: str, discord_username: str, **fields):
     """Upsert whitelisted gear fields for a user by discord_id.
-    Updates the existing row if discord_id is found; otherwise inserts a stub."""
+
+    Resolution order:
+      1. Update any existing row that already has this discord_id (linked account or prior stub).
+      2. Auto-link to a web account whose username matches the Discord username and has no discord_id yet.
+      3. Create a new stub using discord_username as the username (never discord_{id}).
+    """
     fields = {k: v for k, v in fields.items() if k in _ALLOWED_GEAR_COLS}
     if not fields:
         return
 
     field_keys = list(fields.keys())
-
-    # Step 1: try to update any existing row that already has this discord_id
     set_clause = ', '.join(f'{k} = ${i + 3}' for i, k in enumerate(field_keys))
-    update_params = [discord_id, discord_username] + list(fields.values())
+    base_params = [discord_id, discord_username] + list(fields.values())
+
+    # Step 1: update existing row matched by discord_id
     result = await db_pool.execute(
         f"UPDATE users SET discord_username = $2, {set_clause}, updated_at = NOW() WHERE discord_id = $1",
-        *update_params
+        *base_params
     )
-
     if result != "UPDATE 0":
-        return  # existing user updated — done
+        return
 
-    # Step 2: no row with this discord_id yet — create a bot stub
+    # Step 2: auto-link a web account whose username matches the Discord username
+    # (same logic the OAuth flow uses — if the names match it's almost certainly the same person)
+    result = await db_pool.execute(
+        f"""UPDATE users
+            SET discord_id = $1, discord_username = $2, {set_clause}, updated_at = NOW()
+            WHERE username = $2 AND discord_id IS NULL""",
+        *base_params
+    )
+    if result != "UPDATE 0":
+        return
+
+    # Step 3: no existing account — create a stub using the real Discord username, never discord_{id}
     col_list = ', '.join(field_keys)
     placeholders = ', '.join(f'${i + 4}' for i in range(len(field_keys)))
     set_clause_excl = ', '.join(f'{k} = EXCLUDED.{k}' for k in field_keys)
-    insert_params = [discord_id, discord_username, f'discord_{discord_id}'] + list(fields.values())
+    insert_params = [discord_id, discord_username, discord_username] + list(fields.values())
     await db_pool.execute(
         f"""
         INSERT INTO users (discord_id, discord_username, username, password_hash, role, {col_list})
