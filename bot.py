@@ -20,6 +20,7 @@ bot = commands.Bot(command_prefix='!', intents=intents, activity=discord.Game(na
 
 CHEST_INFO_CHANNEL_ID = int(os.getenv("CHEST_INFO_CHANNEL_ID"))
 CHEST_INFO_MESSAGE_ID = int(os.getenv("CHEST_INFO_MESSAGE_ID"))
+GUILD_MEMBER_ROLE_ID = int(os.getenv("GUILD_MEMBER_ROLE_ID"))
 
 CHEST_EVENTS_FILE = os.getenv("CHEST_EVENTS_FILE")
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -397,14 +398,21 @@ async def gs(ctx):
     """Displays the AP, AAP, DP, and GS for the user."""
     await showgs(ctx)
 
-async def create_table(ctx, sort_on_col, reverse):
-    print(f"create_table: requested by {ctx.author.name} ({ctx.author.id}), sort_col={sort_on_col}, reverse={reverse}")
+async def create_table(ctx, sort_on_col, reverse, members_only=True):
+    print(f"create_table: requested by {ctx.author.name} ({ctx.author.id}), sort_col={sort_on_col}, reverse={reverse}, members_only={members_only}")
     rows = await db_get_all_with_gs()
+    if members_only:
+        member_role = ctx.guild.get_role(GUILD_MEMBER_ROLE_ID)
+        member_map = {str(m.id): m for m in member_role.members} if member_role else {}
+    else:
+        member_map = {str(m.id): m for m in ctx.guild.members}
     leaderboard = []
     for row in rows:
+        member = member_map.get(row['discord_id'])
+        if members_only and not member:
+            continue  # skip users without the guild member role
         ap, aap, dp = row['gear_ap'], row['gear_aap'], row['gear_dp']
         gs_val = calculate_gs(ap, aap, dp)
-        member = ctx.guild.get_member(int(row['discord_id']))
         name = member.name if member else (row['discord_username'] or row['discord_id'])
         leaderboard.append((name, ap, aap, dp, gs_val))
 
@@ -454,6 +462,17 @@ async def gslb(ctx):
         return
 
     view = LeaderboardPagination(leaderboard, "Guild Gear Score Leaderboard", ctx.author.id)
+    await ctx.send(embed=view.create_embed(), view=view)
+
+@bot.command()
+async def gsall(ctx):
+    """Displays the GS ranking of everyone who has saved gs, including non-members."""
+    print(f"gsall command: {ctx.author.name} ({ctx.author.id})")
+    leaderboard = await create_table(ctx, 4, True, members_only=False)
+    if not leaderboard:
+        return
+
+    view = LeaderboardPagination(leaderboard, "All Gear Score Leaderboard", ctx.author.id)
     await ctx.send(embed=view.create_embed(), view=view)
 
 @bot.command()
