@@ -380,7 +380,7 @@ INVALID_STAT_RESPONSES = [
 ]
 
 def calculate_gs(ap, aap, dp):
-    return max(ap, aap) + dp
+    return (ap + aap) / 2 + dp
 
 @bot.command()
 async def setap(ctx, ap: int):
