@@ -16,7 +16,7 @@ intents.message_content = True
 intents.members = True
 # intents.channels = True
 
-bot = commands.Bot(command_prefix='!', intents=intents, activity=discord.Game(name="!help"), help_command = commands.DefaultHelpCommand(show_parameter_descriptions=False))
+bot = commands.Bot(command_prefix='!', intents=intents, activity=discord.Game(name="!help"), help_command=commands.DefaultHelpCommand(show_parameter_descriptions=False))
 
 CHEST_INFO_CHANNEL_ID = int(os.getenv("CHEST_INFO_CHANNEL_ID"))
 CHEST_INFO_MESSAGE_ID = int(os.getenv("CHEST_INFO_MESSAGE_ID"))
@@ -580,6 +580,209 @@ class LeaderboardPagination(discord.ui.View):
         if self.current_page < self.total_pages - 1:
             self.current_page += 1
             await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+################# QUOTES #################
+
+import string as _string
+_QUOTE_ID_CHARS = _string.ascii_lowercase + _string.digits  # a-z0-9, matches Nadeko's format
+
+async def _generate_quote_id() -> str:
+    """Generate a unique 5-char alphanumeric ID not already in the quotes table."""
+    while True:
+        new_id = ''.join(random.choices(_QUOTE_ID_CHARS, k=5))
+        exists = await db_pool.fetchrow("SELECT 1 FROM quotes WHERE nadeko_id = $1", new_id)
+        if not exists:
+            return new_id
+
+async def _is_admin(discord_id: str) -> bool:
+    row = await db_pool.fetchrow(
+        "SELECT role FROM users WHERE discord_id = $1", discord_id
+    )
+    return row is not None and row['role'] == 'admin'
+
+
+class QuoteListView(discord.ui.View):
+    def __init__(self, rows, title, per_page=15):
+        super().__init__(timeout=120)
+        self.rows = rows
+        self.title = title
+        self.per_page = per_page
+        self.current_page = 0
+        self.total_pages = max(1, (len(rows) + per_page - 1) // per_page)
+        self._sync_buttons()
+
+    def _sync_buttons(self):
+        self.prev_button.disabled = self.current_page == 0
+        self.next_button.disabled = self.current_page >= self.total_pages - 1
+
+    def create_embed(self):
+        start = self.current_page * self.per_page
+        page = self.rows[start:start + self.per_page]
+        lines = [
+            f"`{r['nadeko_id']}` \u2013{r['keyword']} by {r['author_name'] or 'unknown'}"
+            for r in page
+        ]
+        embed = discord.Embed(
+            title=self.title,
+            description="\n".join(lines),
+            color=discord.Color.blurple()
+        )
+        embed.set_footer(text=f"Page {self.current_page + 1} of {self.total_pages} \u00b7 {len(self.rows)} quotes total")
+        return embed
+
+    @discord.ui.button(label="\u25c4 Prev", style=discord.ButtonStyle.gray)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page -= 1
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="Next \u25ba", style=discord.ButtonStyle.gray)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page += 1
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+
+@bot.command(name="quotelist", aliases=["ql"])
+async def quotelist(ctx, *, keyword: str = None):
+    """Lists quotes with pagination. Optionally filter by keyword.
+    Usage: !quotelist [keyword]
+    """
+    if keyword:
+        rows = await db_pool.fetch(
+            """SELECT nadeko_id, keyword, author_name FROM quotes
+               WHERE keyword ILIKE $1 ORDER BY created_at ASC""",
+            keyword.strip()
+        )
+        title = f"Quotes \u2013 {keyword.upper()}"
+    else:
+        rows = await db_pool.fetch(
+            """SELECT nadeko_id, keyword, author_name FROM quotes
+               ORDER BY keyword ASC, created_at ASC"""
+        )
+        title = "All Quotes"
+
+    if not rows:
+        msg = f"No quotes found for **{keyword}**." if keyword else "No quotes in the archive."
+        await ctx.send(msg)
+        return
+
+    view = QuoteListView(rows, title)
+    await ctx.send(embed=view.create_embed(), view=view)
+
+
+@bot.command(name="quoteprint", aliases=["qp", "q"])
+async def quoteprint(ctx, *, keyword: str):
+    """Prints a random quote for the given keyword.
+    Usage: !quoteprint <keyword>
+           !q <keyword>
+    """
+    rows = await db_pool.fetch(
+        "SELECT nadeko_id, text FROM quotes WHERE keyword ILIKE $1",
+        keyword.strip()
+    )
+    if not rows:
+        await ctx.send(f"No quotes found for keyword **{keyword}**.")
+        return
+
+    quote = random.choice(rows)
+    # Send text directly — Discord will auto-embed image URLs
+    await ctx.send(quote['text'])
+
+
+@bot.command(name="quoteshow", aliases=["qshow"])
+async def quoteshow(ctx, quote_id: str):
+    """Shows full details of a quote by its ID.
+    Usage: !quoteshow <id>
+    """
+    row = await db_pool.fetchrow(
+        "SELECT nadeko_id, keyword, text, author_name, author_discord_id FROM quotes WHERE nadeko_id = $1",
+        quote_id.lower()
+    )
+    if not row:
+        await ctx.send(f"Quote `{quote_id}` not found.")
+        return
+
+    author_str = row['author_name'] or 'unknown'
+    if row['author_discord_id']:
+        author_str += f" ({row['author_discord_id']})"
+
+    embed = discord.Embed(
+        title=f"Quote {row['nadeko_id']}",
+        description=row['text'],
+        color=discord.Color.blurple()
+    )
+    embed.add_field(name="Trigger", value=row['keyword'], inline=True)
+    embed.set_footer(text=f"Created by {author_str}.")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="quoteadd", aliases=["qa"])
+async def quoteadd(ctx, keyword: str, *, text: str):
+    """Adds a new quote to the archive.
+    Usage: !quoteadd <keyword> <quote text>
+    """
+    if not keyword or not text:
+        await ctx.send("Usage: `!quoteadd <keyword> <quote text>`")
+        return
+
+    keyword = keyword.upper()
+    new_id = await _generate_quote_id()
+    author_name = ctx.author.name
+    author_discord_id = str(ctx.author.id)
+
+    await db_pool.execute(
+        """INSERT INTO quotes (keyword, nadeko_id, author_name, author_discord_id, text)
+           VALUES ($1, $2, $3, $4, $5)""",
+        keyword, new_id, author_name, author_discord_id, text
+    )
+
+    await ctx.send(f"Quote added! ID: `{new_id}` \u2013 **{keyword}**")
+
+
+@bot.command(name="quotedelete", aliases=["qd", "qdel"])
+async def quotedelete(ctx, quote_id: str):
+    """Deletes a quote by ID. Only the creator or an officer/admin can delete.
+    Usage: !quotedelete <id>
+    """
+    row = await db_pool.fetchrow(
+        "SELECT nadeko_id, keyword, author_discord_id FROM quotes WHERE nadeko_id = $1",
+        quote_id.lower()
+    )
+    if not row:
+        await ctx.send(f"Quote `{quote_id}` not found.")
+        return
+
+    caller_id = str(ctx.author.id)
+    is_creator = row['author_discord_id'] == caller_id
+    is_admin   = await _is_admin(caller_id)
+
+    if not is_creator and not is_admin:
+        await ctx.send("You can only delete your own quotes (or be an admin).")
+        return
+
+    await db_pool.execute("DELETE FROM quotes WHERE nadeko_id = $1", quote_id.lower())
+    await ctx.send(f"Quote `{quote_id}` ({row['keyword']}) deleted.")
+
+
+@bot.command(name="quotesearch", aliases=["qsearch", "qfind"])
+async def quotesearch(ctx, keyword: str, *, search_term: str):
+    """Search for quotes within a keyword containing a specific term.
+    Usage: !quotesearch <keyword> <search term>
+    """
+    rows = await db_pool.fetch(
+        """SELECT nadeko_id, keyword, author_name FROM quotes
+           WHERE keyword ILIKE $1 AND text ILIKE $2
+           ORDER BY created_at ASC""",
+        keyword.strip(), f"%{search_term}%"
+    )
+    if not rows:
+        await ctx.send(f"No quotes in **{keyword}** matching `{search_term}`.")
+        return
+
+    view = QuoteListView(rows, f"Search: {keyword.upper()} \u00b7 \"{search_term}\"")
+    await ctx.send(embed=view.create_embed(), view=view)
+
 
 ################# 8BALL #################
 _8BALL_RESPONSES = [
