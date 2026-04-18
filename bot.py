@@ -247,42 +247,43 @@ class BoopHelpCommand(commands.HelpCommand):
             return f'{cmd.name} [{", ".join(cmd.aliases)}]'
         return cmd.name
 
-    def _lines_to_blocks(self, lines):
-        """Split pre-formatted lines into code-block strings that each fit within _FIELD_LIMIT."""
-        blocks, current, cur_len = [], [], 8  # 8 = len("```\n") + len("\n```")
-        for line in lines:
-            cost = len(line) + 1  # +1 for the newline
+    def _brief(self, cmd):
+        """Short description with Usage: stripped — full detail is in !help <command>."""
+        doc = cmd.short_doc or ''
+        if 'Usage:' in doc:
+            doc = doc[:doc.index('Usage:')].strip('. ')
+        return doc
+
+    def _cmd_entries(self, cmds):
+        """Return markdown lines: **name** [aliases] — brief desc."""
+        return [f'**{cmd.name}** {f"[{chr(44).join(cmd.aliases)}] " if cmd.aliases else ""}— {self._brief(cmd)}'
+                for cmd in cmds]
+
+    def _split_entries(self, entries):
+        """Split entry lines into field-value chunks at line boundaries."""
+        chunks, current, cur_len = [], [], 0
+        for entry in entries:
+            cost = len(entry) + 1
             if current and cur_len + cost > _FIELD_LIMIT:
-                blocks.append('```\n' + '\n'.join(current) + '\n```')
-                current, cur_len = [line], 8 + cost
+                chunks.append('\n'.join(current))
+                current, cur_len = [entry], cost
             else:
-                current.append(line)
+                current.append(entry)
                 cur_len += cost
         if current:
-            blocks.append('```\n' + '\n'.join(current) + '\n```')
-        return blocks or ['```\n—\n```']
-
-    def _cmd_lines(self, cmds):
-        """Return aligned lines for a list of commands."""
-        width = max(len(self._label(c)) for c in cmds)
-        return [f'{self._label(c).ljust(width)}  {c.short_doc or ""}' for c in cmds]
-
-    def _embed_char_count(self, embed):
-        total = len(embed.title or '') + len(embed.description or '')
-        for f in embed.fields:
-            total += len(f.name) + len(f.value)
-        return total
+            chunks.append('\n'.join(current))
+        return chunks or ['—']
 
     async def _send_fields(self, dest, title, fields):
         """Send (field_name, field_value) pairs across as many embeds as needed."""
-        embed = discord.Embed(title=title, color=discord.Color.blurple())
+        embed       = discord.Embed(title=title, color=discord.Color.blurple())
         embed_chars = len(title)
 
         for name, value in fields:
             cost = len(name) + len(value)
             if embed.fields and embed_chars + cost > _EMBED_LIMIT:
                 await dest.send(embed=embed)
-                embed = discord.Embed(color=discord.Color.blurple())
+                embed       = discord.Embed(color=discord.Color.blurple())
                 embed_chars = 0
             embed.add_field(name=name, value=value, inline=False)
             embed_chars += cost
@@ -299,18 +300,21 @@ class BoopHelpCommand(commands.HelpCommand):
             if not filtered:
                 continue
             cog_name = getattr(cog, 'qualified_name', 'Other')
-            blocks   = self._lines_to_blocks(self._cmd_lines(filtered))
-            # First block uses the category name; continuations use a zero-width space
-            for i, block in enumerate(blocks):
-                fields.append((cog_name if i == 0 else '\u200b', block))
+            chunks   = self._split_entries(self._cmd_entries(filtered))
+            for i, chunk in enumerate(chunks):
+                fields.append((cog_name if i == 0 else '\u200b', chunk))
 
+        footer_field = ('\u200b', '*Use `!help <command>` for full usage details.*')
+        fields.append(footer_field)
         await self._send_fields(dest, 'BoopBot Commands', fields)
 
     async def send_cog_help(self, cog):
         dest     = self.get_destination()
         filtered = await self.filter_commands(cog.get_commands(), sort=True)
-        blocks   = self._lines_to_blocks(self._cmd_lines(filtered)) if filtered else ['```\n—\n```']
-        fields   = [(cog.qualified_name if i == 0 else '\u200b', b) for i, b in enumerate(blocks)]
+        entries  = self._cmd_entries(filtered) if filtered else ['—']
+        chunks   = self._split_entries(entries)
+        fields   = [(cog.qualified_name if i == 0 else '\u200b', c) for i, c in enumerate(chunks)]
+        fields.append(('\u200b', '*Use `!help <command>` for full usage details.*'))
         await self._send_fields(dest, f'{cog.qualified_name} Commands', fields)
 
     async def send_command_help(self, cmd):
