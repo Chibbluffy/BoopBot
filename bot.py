@@ -643,7 +643,7 @@ class QuoteListView(discord.ui.View):
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
 
-@bot.command(name="quotelist", aliases=["ql"])
+@bot.command(name="quotelist", aliases=["ql", "qli"])
 async def quotelist(ctx, *, keyword: str = None):
     """Lists quotes with pagination. Optionally filter by keyword.
     Usage: !quotelist [keyword]
@@ -671,7 +671,7 @@ async def quotelist(ctx, *, keyword: str = None):
     await ctx.send(embed=view.create_embed(), view=view)
 
 
-@bot.command(name="quoteprint", aliases=["qp", "q"])
+@bot.command(name="quoteprint", aliases=["qp", "q", "!!"])
 async def quoteprint(ctx, *, keyword: str):
     """Prints a random quote for the given keyword.
     Usage: !quoteprint <keyword>
