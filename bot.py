@@ -621,7 +621,7 @@ class QuoteListView(discord.ui.View):
         start = self.current_page * self.per_page
         page = self.rows[start:start + self.per_page]
         lines = [
-            f"`{r['nadeko_id']}` : {r['keyword']} by {r['author_name'] or 'unknown'}"
+            f"`{r['nadeko_id']}` :  {r['keyword']} by {r['author_name'] or 'unknown'}"
             for r in page
         ]
         embed = discord.Embed(
