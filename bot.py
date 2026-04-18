@@ -236,40 +236,89 @@ class ConfirmView(discord.ui.View):
 
 # ── Custom Help Command ───────────────────────────────────────────────────────
 
+_FIELD_LIMIT = 1000   # field value limit (Discord max 1024, keep buffer)
+_EMBED_LIMIT = 5800   # total embed char limit (Discord max 6000, keep buffer)
+
+
 class BoopHelpCommand(commands.HelpCommand):
 
-    def fmt_cmd(self, cmd):
+    def _label(self, cmd):
         if cmd.aliases:
-            aliases = ', '.join(f'`{a}`' for a in cmd.aliases)
-            return f'`{cmd.name}` [{aliases}]'
-        return f'`{cmd.name}`'
+            return f'{cmd.name} [{", ".join(cmd.aliases)}]'
+        return cmd.name
+
+    def _lines_to_blocks(self, lines):
+        """Split pre-formatted lines into code-block strings that each fit within _FIELD_LIMIT."""
+        blocks, current, cur_len = [], [], 8  # 8 = len("```\n") + len("\n```")
+        for line in lines:
+            cost = len(line) + 1  # +1 for the newline
+            if current and cur_len + cost > _FIELD_LIMIT:
+                blocks.append('```\n' + '\n'.join(current) + '\n```')
+                current, cur_len = [line], 8 + cost
+            else:
+                current.append(line)
+                cur_len += cost
+        if current:
+            blocks.append('```\n' + '\n'.join(current) + '\n```')
+        return blocks or ['```\n—\n```']
+
+    def _cmd_lines(self, cmds):
+        """Return aligned lines for a list of commands."""
+        width = max(len(self._label(c)) for c in cmds)
+        return [f'{self._label(c).ljust(width)}  {c.short_doc or ""}' for c in cmds]
+
+    def _embed_char_count(self, embed):
+        total = len(embed.title or '') + len(embed.description or '')
+        for f in embed.fields:
+            total += len(f.name) + len(f.value)
+        return total
+
+    async def _send_fields(self, dest, title, fields):
+        """Send (field_name, field_value) pairs across as many embeds as needed."""
+        embed = discord.Embed(title=title, color=discord.Color.blurple())
+        embed_chars = len(title)
+
+        for name, value in fields:
+            cost = len(name) + len(value)
+            if embed.fields and embed_chars + cost > _EMBED_LIMIT:
+                await dest.send(embed=embed)
+                embed = discord.Embed(color=discord.Color.blurple())
+                embed_chars = 0
+            embed.add_field(name=name, value=value, inline=False)
+            embed_chars += cost
+
+        if embed.fields:
+            await dest.send(embed=embed)
 
     async def send_bot_help(self, mapping):
-        embed = discord.Embed(title='BoopBot Commands', color=discord.Color.blurple())
+        dest   = self.get_destination()
+        fields = []
+
         for cog, cmds in mapping.items():
             filtered = await self.filter_commands(cmds, sort=True)
             if not filtered:
                 continue
-            name  = getattr(cog, 'qualified_name', 'Other')
-            lines = [f'{self.fmt_cmd(c)}  {c.short_doc or ""}' for c in filtered]
-            embed.add_field(name=name, value='\n'.join(lines), inline=False)
-        await self.get_destination().send(embed=embed)
+            cog_name = getattr(cog, 'qualified_name', 'Other')
+            blocks   = self._lines_to_blocks(self._cmd_lines(filtered))
+            # First block uses the category name; continuations use a zero-width space
+            for i, block in enumerate(blocks):
+                fields.append((cog_name if i == 0 else '\u200b', block))
+
+        await self._send_fields(dest, 'BoopBot Commands', fields)
 
     async def send_cog_help(self, cog):
+        dest     = self.get_destination()
         filtered = await self.filter_commands(cog.get_commands(), sort=True)
-        embed    = discord.Embed(title=f'{cog.qualified_name} Commands', color=discord.Color.blurple())
-        for cmd in filtered:
-            embed.add_field(name=self.fmt_cmd(cmd), value=cmd.short_doc or '—', inline=False)
-        await self.get_destination().send(embed=embed)
+        blocks   = self._lines_to_blocks(self._cmd_lines(filtered)) if filtered else ['```\n—\n```']
+        fields   = [(cog.qualified_name if i == 0 else '\u200b', b) for i, b in enumerate(blocks)]
+        await self._send_fields(dest, f'{cog.qualified_name} Commands', fields)
 
     async def send_command_help(self, cmd):
         embed = discord.Embed(
-            title=self.fmt_cmd(cmd),
+            title=self._label(cmd),
             description=cmd.help or cmd.short_doc or '—',
             color=discord.Color.blurple()
         )
-        if cmd.aliases:
-            embed.add_field(name='Aliases', value=', '.join(f'`{a}`' for a in cmd.aliases), inline=False)
         await self.get_destination().send(embed=embed)
 
     async def send_error_message(self, error):
