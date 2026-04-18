@@ -584,6 +584,8 @@ class LeaderboardPagination(discord.ui.View):
 ################# QUOTES #################
 
 import string as _string
+import io
+import yaml
 _QUOTE_ID_CHARS = _string.ascii_lowercase + _string.digits  # a-z0-9, matches Nadeko's format
 
 async def _generate_quote_id() -> str:
@@ -686,8 +688,7 @@ async def quoteprint(ctx, *, keyword: str):
         return
 
     quote = random.choice(rows)
-    # Send text directly — Discord will auto-embed image URLs
-    await ctx.send(quote['text'])
+    await ctx.reply(f"`{quote['nadeko_id']}` 📣 {quote['text']}")
 
 
 @bot.command(name="quoteshow", aliases=["qshow"])
@@ -782,6 +783,192 @@ async def quotesearch(ctx, keyword: str, *, search_term: str):
 
     view = QuoteListView(rows, f"Search: {keyword.upper()} \u00b7 \"{search_term}\"")
     await ctx.send(embed=view.create_embed(), view=view)
+
+
+class ConfirmView(discord.ui.View):
+    """Generic confirm/cancel prompt. Only the invoking user can interact."""
+    def __init__(self, author_id):
+        super().__init__(timeout=30)
+        self.author_id = author_id
+        self.confirmed = False
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("This isn't your confirmation.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.confirmed = True
+        self.stop()
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.gray)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        await interaction.response.send_message("Cancelled.", ephemeral=True)
+
+
+@bot.command(name="quotedeleteauthor", aliases=["qda"])
+async def quotedeleteauthor(ctx, member: discord.Member):
+    """(Admin only) Deletes all quotes added by the specified user.
+    Usage: !quotedeleteauthor @user
+    """
+    if not await _is_admin(str(ctx.author.id)):
+        await ctx.send("This command is admin only.")
+        return
+
+    count = await db_pool.fetchval(
+        "SELECT COUNT(*) FROM quotes WHERE author_discord_id = $1",
+        str(member.id)
+    )
+    if not count:
+        await ctx.send(f"No quotes found by **{member.name}**.")
+        return
+
+    view = ConfirmView(ctx.author.id)
+    msg = await ctx.send(
+        f"⚠️ This will delete **{count}** quote(s) by **{member.name}**. Are you sure?",
+        view=view
+    )
+    await view.wait()
+
+    if view.confirmed:
+        await db_pool.execute(
+            "DELETE FROM quotes WHERE author_discord_id = $1", str(member.id)
+        )
+        await msg.edit(content=f"Deleted **{count}** quote(s) by **{member.name}**.", view=None)
+    else:
+        await msg.edit(content="Cancelled.", view=None)
+
+
+@bot.command(name="quotesdeleteall", aliases=["qdall"])
+async def quotesdeleteall(ctx, *, keyword: str = None):
+    """(Admin only) Deletes all quotes, or all quotes for a specific keyword.
+    Usage: !quotesdeleteall
+           !quotesdeleteall <keyword>
+    """
+    if not await _is_admin(str(ctx.author.id)):
+        await ctx.send("This command is admin only.")
+        return
+
+    if keyword:
+        count = await db_pool.fetchval(
+            "SELECT COUNT(*) FROM quotes WHERE keyword ILIKE $1", keyword.strip()
+        )
+        warning = f"⚠️ This will delete **{count}** quote(s) for keyword **{keyword.upper()}**. Are you sure?"
+    else:
+        count = await db_pool.fetchval("SELECT COUNT(*) FROM quotes")
+        warning = f"⚠️ This will delete **ALL {count}** quotes from the archive. Are you sure?"
+
+    if not count:
+        await ctx.send("No quotes to delete.")
+        return
+
+    view = ConfirmView(ctx.author.id)
+    msg = await ctx.send(warning, view=view)
+    await view.wait()
+
+    if view.confirmed:
+        if keyword:
+            await db_pool.execute("DELETE FROM quotes WHERE keyword ILIKE $1", keyword.strip())
+            await msg.edit(content=f"Deleted **{count}** quote(s) for **{keyword.upper()}**.", view=None)
+        else:
+            await db_pool.execute("DELETE FROM quotes")
+            await msg.edit(content=f"Deleted all **{count}** quotes.", view=None)
+    else:
+        await msg.edit(content="Cancelled.", view=None)
+
+
+@bot.command(name="quotesexport", aliases=["qexport", "qex"])
+async def quotesexport(ctx):
+    """(Admin only) Exports all quotes as a Nadeko-compatible YAML file.
+    Usage: !quotesexport
+    """
+    if not await _is_admin(str(ctx.author.id)):
+        await ctx.send("This command is admin only.")
+        return
+
+    rows = await db_pool.fetch(
+        "SELECT keyword, nadeko_id, author_name, author_discord_id, text FROM quotes ORDER BY keyword ASC, created_at ASC"
+    )
+    if not rows:
+        await ctx.send("No quotes to export.")
+        return
+
+    data = {}
+    for row in rows:
+        kw = row['keyword']
+        if kw not in data:
+            data[kw] = []
+        data[kw].append({
+            'id':  row['nadeko_id'] or '',
+            'an':  row['author_name'] or '',
+            'aid': int(row['author_discord_id']) if row['author_discord_id'] else 0,
+            'txt': row['text'],
+        })
+
+    yml_bytes = yaml.dump(data, allow_unicode=True, sort_keys=False).encode('utf-8')
+    file = discord.File(io.BytesIO(yml_bytes), filename="quotes-export.yml")
+    await ctx.send(f"Exported **{len(rows)}** quotes.", file=file)
+
+
+@bot.command(name="quotesimport", aliases=["qimport", "qim"])
+async def quotesimport(ctx):
+    """(Admin only) Imports quotes from an attached Nadeko-compatible YAML file.
+    Skips any quote whose nadeko_id already exists in the database.
+    Usage: !quotesimport  (attach a .yml file)
+    """
+    if not await _is_admin(str(ctx.author.id)):
+        await ctx.send("This command is admin only.")
+        return
+
+    if not ctx.message.attachments:
+        await ctx.send("Please attach a `.yml` file.")
+        return
+
+    attachment = ctx.message.attachments[0]
+    if not attachment.filename.endswith(('.yml', '.yaml')):
+        await ctx.send("Attachment must be a `.yml` or `.yaml` file.")
+        return
+
+    raw = await attachment.read()
+    try:
+        data = yaml.safe_load(raw.decode('utf-8'))
+    except yaml.YAMLError as e:
+        await ctx.send(f"Failed to parse YAML: {e}")
+        return
+
+    if not isinstance(data, dict):
+        await ctx.send("Invalid format — expected a keyword mapping at the top level.")
+        return
+
+    inserted = 0
+    skipped  = 0
+    for keyword, quotes in data.items():
+        if not isinstance(quotes, list):
+            continue
+        for q in quotes:
+            nadeko_id   = str(q.get('id', '')).strip() or await _generate_quote_id()
+            author_name = str(q.get('an', '')).strip() or None
+            author_id   = str(q.get('aid', '')).strip() or None
+            text        = str(q.get('txt', '')).strip()
+            if not text:
+                skipped += 1
+                continue
+            result = await db_pool.execute(
+                """INSERT INTO quotes (keyword, nadeko_id, author_name, author_discord_id, text)
+                   VALUES ($1, $2, $3, $4, $5)
+                   ON CONFLICT (nadeko_id) DO NOTHING""",
+                str(keyword).upper(), nadeko_id, author_name, author_id, text
+            )
+            if result == "INSERT 0 1":
+                inserted += 1
+            else:
+                skipped += 1
+
+    await ctx.send(f"Import complete. Inserted: **{inserted}** · Skipped/duplicate: **{skipped}**")
 
 
 ################# 8BALL #################
