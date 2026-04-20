@@ -644,9 +644,14 @@ class QuotesCog(commands.Cog, name="Quotes"):
         embed.set_footer(text=f"Created by {author}.")
         await ctx.send(embed=embed)
 
-    @commands.command(name="quoteadd", aliases=["qa"])
-    async def quoteadd(self, ctx, keyword: str, *, text: str):
-        """Adds a new quote. Usage: !quoteadd <keyword> <text>"""
+    @commands.command(name="quoteadd", aliases=["qa", "!"])
+    async def quoteadd(self, ctx, keyword: str, *, text: str = ""):
+        """Adds a new quote. Usage: !quoteadd <keyword> <text> (or attach an image)"""
+        if ctx.message.attachments:
+            text = (text + "\n" + ctx.message.attachments[0].url).strip()
+        if not text:
+            await ctx.send("Provide quote text or attach an image.")
+            return
         keyword = keyword.upper()
         new_id  = await _generate_quote_id()
         await db_pool.execute(
