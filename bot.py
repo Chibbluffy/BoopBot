@@ -19,6 +19,7 @@ _COGS = [
     "cogs.economy",
     "cogs.fishing",
     "cogs.casino",
+    "cogs.moderation",
 ]
 
 # ── Custom help command ────────────────────────────────────────────────────────

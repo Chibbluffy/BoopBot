@@ -98,6 +98,53 @@ class FishingCog(commands.Cog, name="Fishing"):
 
     def __init__(self, bot):
         self.bot = bot
+        # (channel_id, user_id) → (message, lines list)
+        self._catch_logs: dict[tuple[int, int], tuple[discord.Message, list[str]]] = {}
+
+    async def _get_log(self, ctx) -> tuple[discord.Message | None, list[str]]:
+        """Return existing catch log message if it's still the last message in the channel."""
+        key      = (ctx.channel.id, ctx.author.id)
+        existing = self._catch_logs.get(key)
+        if not existing:
+            return None, []
+        log_msg, lines = existing
+        async for last in ctx.channel.history(limit=1):
+            if last.id == log_msg.id:
+                return log_msg, lines
+        return None, []
+
+    async def _update_log(self, ctx, new_line: str, new_bal: int, tier: int):
+        """Append a catch line to the log, creating or reusing as needed."""
+        key             = (ctx.channel.id, ctx.author.id)
+        log_msg, lines  = await self._get_log(ctx)
+
+        # Remove old balance suffix from previous last line
+        if lines:
+            lines[-1] = lines[-1].split("  ·  bal:")[0]
+
+        lines.append(new_line)
+
+        # If adding this line would exceed the embed limit, start a fresh log
+        body = "\n".join(lines)
+        if len(body) > 1800:
+            lines = [new_line]
+            log_msg = None
+
+        # Append balance to last line
+        display = "\n".join(lines[:-1] + [lines[-1] + f"  ·  bal: **{new_bal:,}**"])
+
+        embed = discord.Embed(
+            title=f"🎣 {ctx.author.display_name}'s Catch Log",
+            description=display,
+            color=_FISH_TIER_COLORS[tier],
+        )
+
+        if log_msg:
+            await log_msg.edit(embed=embed)
+            self._catch_logs[key] = (log_msg, lines)
+        else:
+            new_msg = await ctx.send(embed=embed)
+            self._catch_logs[key] = (new_msg, lines)
 
     @commands.command(name="fish")
     async def fish(self, ctx):
@@ -105,37 +152,43 @@ class FishingCog(commands.Cog, name="Fishing"):
         discord_id = str(ctx.author.id)
         profile    = await utils.get_fishing_profile(discord_id)
 
-        embed = discord.Embed(description="🎣 Casting your line...", color=0x1e90ff)
-        msg   = await ctx.send(embed=embed)
+        # Delete the !fish command to keep chat clean
+        try:
+            await ctx.message.delete()
+        except discord.Forbidden:
+            pass
+
+        embed    = discord.Embed(description="🎣 Casting your line...", color=0x1e90ff)
+        cast_msg = await ctx.send(embed=embed)
 
         await asyncio.sleep(random.uniform(2, 5))
 
         view = FishingView(ctx.author.id)
         embed.description = "🐟 Something's tugging on the line! Quick!"
-        await msg.edit(embed=embed, view=view)
+        await cast_msg.edit(embed=embed, view=view)
 
         timed_out = await view.wait()
 
+        # Always delete the cast/reel message before showing results
+        try:
+            await cast_msg.delete()
+        except discord.NotFound:
+            pass
+
         if timed_out or not view.clicked:
-            embed.description = "🌊 The fish slipped away... Cast again!"
-            embed.color = 0x607080
-            await msg.edit(embed=embed, view=None)
+            await self._update_log(ctx, "🌊 Got away...", await utils.get_boops(discord_id), 0)
             return
 
         if profile["active_bait"]:
             await utils.use_bait(discord_id, profile["active_bait"])
             profile = await utils.get_fishing_profile(discord_id)
 
-        score              = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
+        score                  = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
         fish_name, value, tier = _roll_fish(score)
+        new_bal                = await utils.add_boops(discord_id, value, ctx.author.name)
 
-        new_bal = await utils.add_boops(discord_id, value, ctx.author.name)
-        embed.description = (
-            f"{_FISH_TIER_EMOJI[tier]} **{ctx.author.display_name}** caught a **{fish_name}**!\n"
-            f"+**{value:,}** boops  ·  Balance: **{new_bal:,}**"
-        )
-        embed.color = _FISH_TIER_COLORS[tier]
-        await msg.edit(embed=embed, view=None)
+        line = f"{_FISH_TIER_EMOJI[tier]} **{fish_name}** +**{value:,}**"
+        await self._update_log(ctx, line, new_bal, tier)
 
     @commands.command(name="shop")
     async def shop(self, ctx):
