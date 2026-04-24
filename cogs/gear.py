@@ -165,7 +165,6 @@ class GearCog(commands.Cog, name="Gear"):
     async def _build_table(self, ctx, sort_col, reverse, members_only=True):
         rows = await utils.db_get_all_with_gs()
         role_id = utils.GUILD_MEMBER_ROLE_ID
-        print(f"[gear] GUILD_MEMBER_ROLE_ID={role_id}, guild members cached={len(ctx.guild.members)}, db rows={len(rows)}")
         if members_only and role_id:
             member_map = {
                 str(m.id): m for m in ctx.guild.members
