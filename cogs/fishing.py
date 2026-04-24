@@ -292,8 +292,7 @@ class FishingCog(commands.Cog, name="Fishing"):
                 if item["category"] != category:
                     continue
                 if category == "bait":
-                    prices = "  ".join(f"`{q}={item['price']*q:,}`" for q in BAIT_QUANTITIES)
-                    lines.append(f"**{item['name']}** — {item['price']} ea\n  {prices}\n  _{item['desc']}_")
+                    lines.append(f"**{item['name']}** — {item['price']} ea\n  _{item['desc']}_")
                 else:
                     lines.append(f"**{item['name']}** — {item['price']:,} boops\n  _{item['desc']}_")
             embed.add_field(name=label, value="\n".join(lines), inline=False)

@@ -166,7 +166,7 @@ class GearCog(commands.Cog, name="Gear"):
         rows = await utils.db_get_all_with_gs()
         if members_only:
             role       = ctx.guild.get_role(utils.GUILD_MEMBER_ROLE_ID)
-            member_map = {str(m.id): m for m in role.members} if role else {}
+            member_map = {str(m.id): m for m in role.members} if role else {str(m.id): m for m in ctx.guild.members}
         else:
             member_map = {str(m.id): m for m in ctx.guild.members}
 
@@ -176,7 +176,7 @@ class GearCog(commands.Cog, name="Gear"):
             if members_only and not member:
                 continue
             ap, aap, dp = row['gear_ap'], row['gear_aap'], row['gear_dp']
-            name = member.name if member else (row['discord_username'] or row['discord_id'])
+            name = member.display_name if member else (row['discord_username'] or row['discord_id'])
             leaderboard.append((name, ap, aap, dp, utils.calculate_gs(ap, aap, dp)))
 
         if not leaderboard:
