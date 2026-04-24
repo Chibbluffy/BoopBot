@@ -8,32 +8,31 @@ SHOP_ITEMS = {
     "rod_apprentice":   {"name": "Apprentice Rod",    "category": "rod",   "price":    2_000, "tier": 2, "desc": "Better grip, better catches."},
     "rod_skilled":      {"name": "Skilled Rod",       "category": "rod",   "price":    8_000, "tier": 3, "desc": "Crafted with care."},
     "rod_professional": {"name": "Professional Rod",  "category": "rod",   "price":   25_000, "tier": 4, "desc": "Built for serious fishing."},
-    "rod_artisan":      {"name": "Artisan Rod",       "category": "rod",   "price":   75_000, "tier": 5, "desc": "Masterfully balanced."},
-    "rod_master":       {"name": "Master Rod",        "category": "rod",   "price":  200_000, "tier": 6, "desc": "Few fishers have held one."},
-    "rod_guru":         {"name": "Guru Rod",          "category": "rod",   "price":  500_000, "tier": 7, "desc": "The pinnacle of fishing craft."},
+    "rod_artisan":      {"name": "Artisan Rod",       "category": "rod",   "price":   200_000, "tier": 5, "desc": "Masterfully balanced."},
+    "rod_master":       {"name": "Master Rod",        "category": "rod",   "price":  1_000_000, "tier": 6, "desc": "Few fishers have held one."},
+    "rod_guru":         {"name": "Guru Rod",          "category": "rod",   "price":  5_000_000, "tier": 7, "desc": "The pinnacle of fishing craft."},
     # Floats (permanent, tier 1-7)
-    "float_beginner":     {"name": "Beginner's Float",   "category": "float", "price":      200, "tier": 1, "desc": "Standard sensitivity."},
-    "float_apprentice":   {"name": "Apprentice Float",   "category": "float", "price":      800, "tier": 2, "desc": "Tuned for light bites."},
-    "float_skilled":      {"name": "Skilled Float",      "category": "float", "price":    3_000, "tier": 3, "desc": "Detects what others miss."},
-    "float_professional": {"name": "Professional Float", "category": "float", "price":   10_000, "tier": 4, "desc": "Precision at any depth."},
-    "float_artisan":      {"name": "Artisan Float",      "category": "float", "price":   30_000, "tier": 5, "desc": "Reads the water like a book."},
-    "float_master":       {"name": "Master Float",       "category": "float", "price":   80_000, "tier": 6, "desc": "Almost sentient."},
-    "float_guru":         {"name": "Guru Float",         "category": "float", "price":  200_000, "tier": 7, "desc": "Legends whisper its name."},
+    "float_beginner":     {"name": "Beginner's Float",   "category": "float", "price":      250, "tier": 1, "desc": "Standard sensitivity."},
+    "float_apprentice":   {"name": "Apprentice Float",   "category": "float", "price":    1_000, "tier": 2, "desc": "Tuned for light bites."},
+    "float_skilled":      {"name": "Skilled Float",      "category": "float", "price":    4_000, "tier": 3, "desc": "Detects what others miss."},
+    "float_professional": {"name": "Professional Float", "category": "float", "price":   12_500, "tier": 4, "desc": "Precision at any depth."},
+    "float_artisan":      {"name": "Artisan Float",      "category": "float", "price":  100_000, "tier": 5, "desc": "Reads the water like a book."},
+    "float_master":       {"name": "Master Float",       "category": "float", "price":  500_000, "tier": 6, "desc": "Almost sentient."},
+    "float_guru":         {"name": "Guru Float",         "category": "float", "price":2_500_000, "tier": 7, "desc": "Legends whisper its name."},
     # Bait (consumable, 1 per cast, tier 0-6)
-    "bait_worm":          {"name": "Worm",               "category": "bait",  "price":       2, "tier": 0, "desc": "Basic bait. Gets the job done."},
     "bait_beginner":      {"name": "Beginner Bait",      "category": "bait",  "price":      10, "tier": 1, "desc": "A step up from worms."},
     "bait_apprentice":    {"name": "Apprentice Bait",    "category": "bait",  "price":      50, "tier": 2, "desc": "Fish find it hard to resist."},
     "bait_skilled":       {"name": "Skilled Bait",       "category": "bait",  "price":     250, "tier": 3, "desc": "Specially prepared blend."},
     "bait_professional":  {"name": "Professional Bait",  "category": "bait",  "price":   1_000, "tier": 4, "desc": "The pros won't share the recipe."},
     "bait_artisan":       {"name": "Artisan Bait",       "category": "bait",  "price":   4_000, "tier": 5, "desc": "Rare fish can't ignore this."},
-    "bait_master":        {"name": "Master Bait",        "category": "bait",  "price":  15_000, "tier": 6, "desc": "We don't talk about the recipe."},
+    "bait_master":        {"name": "Master Bait",        "category": "bait",  "price":  15_000, "tier": 6, "desc": "You don't want to know how this is made. Trust me."},
 }
 
 # (tier, name, value, min_kg, max_kg)
 FISH_LOOT = [
     # Junk (tier 0) — no records, no meaningful value
-    (0, "Old Fishing Rod",    1,   0.1,   1.5),
-    (0, "Ripped Tights",      1,   0.05,  0.4),
+    (0, "Broken Fishing Rod", 1,   0.1,   1.5),
+    (0, "Tin Can",            1,   0.05,  0.4),
     (0, "Broken Bottle",      1,   0.1,   0.8),
     (0, "Torn Net",           1,   0.2,   1.5),
     # Common (tier 1) — 10–20 boops
@@ -55,14 +54,14 @@ FISH_LOOT = [
     (3, "Goliath Grouper",  450,  20.0, 300.0),
     (3, "Skate",            220,   2.0,  25.0),
     # Ultra Rare (tier 4) — 1,000–5,000 boops
-    (4, "Bigeye Tuna",    1_500,  20.0, 150.0),
-    (4, "Sunfish",        3_000,  50.0, 2_000.0),
-    (4, "Swordfish",      2_500,  30.0, 250.0),
-    (4, "Blowfish",       1_000,   0.5,   5.0),
+    (4, "Bigeye Tuna",     1_500,  20.0, 150.0),
+    (4, "Sunfish",         3_000,  50.0, 2_000.0),
+    (4, "Silver Beltfish", 2_500,  30.0, 250.0),
+    (4, "Yellow Corvina",  1_000,   0.5,   5.0),
     (4, "Spotted Sea Bass",1_200,  1.0,  10.0),
     # Legendary (tier 5) — 20,000+ boops, requires GS 10+
-    (5, "Silver Beltfish", 25_000,  5.0,  30.0),
-    (5, "Yellow Corvina",  22_000,  3.0,  20.0),
+    (5, "Stingray", 25_000,  5.0,  30.0),
+    (5, "Pink Dolphin",    80_000,  3.0,  20.0),
     (5, "Blue Bat Star",   20_000,  0.1,   1.5),
     (5, "Requiem Shark",   50_000, 50.0, 300.0),
     (5, "Giant Black Squid",35_000,10.0,  80.0),
@@ -105,7 +104,7 @@ def _roll_fish(gear_score):
     base_weights = [
         max(1,  40 * (0.75 ** gs)),         # junk:      40→1  (halves every ~2.4 GS)
         max(3,  35 * (0.88 ** gs)),         # common:    35→3  (slower decay)
-        max(8,  17 + gs*2 - gs*gs*0.3),    # uncommon:  peaks ~GS3, floors at 8
+        max(8,  17 + gs*2 - gs*gs*0.3),     # uncommon:  peaks ~GS3, floors at 8
         min(60,  6 * (1.38 ** gs)),         # rare:       6→60 (caps around GS8)
         min(28,  2 * (1.40 ** gs)),         # ultra rare: 2→28 (caps around GS9)
     ]
