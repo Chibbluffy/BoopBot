@@ -3,23 +3,31 @@ from discord.ext import commands
 import utils
 
 SHOP_ITEMS = {
-    # Rods (permanent, tier 1-4)
-    "rod_ash":        {"name": "Ash Rod",        "category": "rod",   "price":     500, "tier": 1, "desc": "A step up from twigs."},
-    "rod_maple":      {"name": "Maple Rod",      "category": "rod",   "price":   2_000, "tier": 2, "desc": "Balanced and reliable."},
-    "rod_mediah":     {"name": "Mediah Rod",     "category": "rod",   "price":   8_000, "tier": 3, "desc": "Favored by serious fishers."},
-    "rod_gold":       {"name": "Gold Rod",       "category": "rod",   "price":  30_000, "tier": 4, "desc": "Legendary catches await."},
-    # Floats (permanent, tier 1-4)
-    "float_basic":    {"name": "Basic Float",    "category": "float", "price":     200, "tier": 1, "desc": "Improves line sensitivity."},
-    "float_balenos":  {"name": "Balenos Float",  "category": "float", "price":   1_000, "tier": 2, "desc": "Lightweight Balenos craftsmanship."},
-    "float_mediah":   {"name": "Mediah Float",   "category": "float", "price":   5_000, "tier": 3, "desc": "Deep-water detection."},
-    "float_calpheon": {"name": "Calpheon Float", "category": "float", "price":  15_000, "tier": 4, "desc": "The pinnacle of float design."},
-    # Bait (consumable, 1 per cast, tier 0-2)
-    "bait_worm":      {"name": "Worm",           "category": "bait",  "price":       2, "tier": 0, "desc": "Basic bait. Gets the job done."},
-    "bait_crab":      {"name": "Crab Bait",      "category": "bait",  "price":      10, "tier": 1, "desc": "Attracts better fish."},
-    "bait_special":   {"name": "Special Bait",   "category": "bait",  "price":     100, "tier": 2, "desc": "Rare fish are drawn to this."},
+    # Rods (permanent, tier 1-7)
+    "rod_beginner":     {"name": "Beginner's Rod",    "category": "rod",   "price":      500, "tier": 1, "desc": "A simple but functional rod."},
+    "rod_apprentice":   {"name": "Apprentice Rod",    "category": "rod",   "price":    2_000, "tier": 2, "desc": "Better grip, better catches."},
+    "rod_skilled":      {"name": "Skilled Rod",       "category": "rod",   "price":    8_000, "tier": 3, "desc": "Crafted with care."},
+    "rod_professional": {"name": "Professional Rod",  "category": "rod",   "price":   25_000, "tier": 4, "desc": "Built for serious fishing."},
+    "rod_artisan":      {"name": "Artisan Rod",       "category": "rod",   "price":   75_000, "tier": 5, "desc": "Masterfully balanced."},
+    "rod_master":       {"name": "Master Rod",        "category": "rod",   "price":  200_000, "tier": 6, "desc": "Few fishers have held one."},
+    "rod_guru":         {"name": "Guru Rod",          "category": "rod",   "price":  500_000, "tier": 7, "desc": "The pinnacle of fishing craft."},
+    # Floats (permanent, tier 1-7)
+    "float_beginner":     {"name": "Beginner's Float",   "category": "float", "price":      200, "tier": 1, "desc": "Standard sensitivity."},
+    "float_apprentice":   {"name": "Apprentice Float",   "category": "float", "price":      800, "tier": 2, "desc": "Tuned for light bites."},
+    "float_skilled":      {"name": "Skilled Float",      "category": "float", "price":    3_000, "tier": 3, "desc": "Detects what others miss."},
+    "float_professional": {"name": "Professional Float", "category": "float", "price":   10_000, "tier": 4, "desc": "Precision at any depth."},
+    "float_artisan":      {"name": "Artisan Float",      "category": "float", "price":   30_000, "tier": 5, "desc": "Reads the water like a book."},
+    "float_master":       {"name": "Master Float",       "category": "float", "price":   80_000, "tier": 6, "desc": "Almost sentient."},
+    "float_guru":         {"name": "Guru Float",         "category": "float", "price":  200_000, "tier": 7, "desc": "Legends whisper its name."},
+    # Bait (consumable, 1 per cast, tier 0-6)
+    "bait_worm":          {"name": "Worm",               "category": "bait",  "price":       2, "tier": 0, "desc": "Basic bait. Gets the job done."},
+    "bait_beginner":      {"name": "Beginner Bait",      "category": "bait",  "price":      10, "tier": 1, "desc": "A step up from worms."},
+    "bait_apprentice":    {"name": "Apprentice Bait",    "category": "bait",  "price":      50, "tier": 2, "desc": "Fish find it hard to resist."},
+    "bait_skilled":       {"name": "Skilled Bait",       "category": "bait",  "price":     250, "tier": 3, "desc": "Specially prepared blend."},
+    "bait_professional":  {"name": "Professional Bait",  "category": "bait",  "price":   1_000, "tier": 4, "desc": "The pros won't share the recipe."},
+    "bait_artisan":       {"name": "Artisan Bait",       "category": "bait",  "price":   4_000, "tier": 5, "desc": "Rare fish can't ignore this."},
+    "bait_master":        {"name": "Master Bait",        "category": "bait",  "price":  15_000, "tier": 6, "desc": "We don't talk about the recipe."},
 }
-
-BAIT_QUANTITIES = [1, 5, 25, 100, 500, 2_000]
 
 # (tier, name, value, min_kg, max_kg)
 FISH_LOOT = [
@@ -46,12 +54,18 @@ FISH_LOOT = [
     (3, "Greater Amberjack",157,   5.0,  50.0),
     (3, "Goliath Grouper",  156,  20.0, 300.0),
     (3, "Skate",            165,   2.0,  25.0),
-    # Legendary (tier 4) — BDO prize fish / 1,000
-    (4, "Silver Beltfish",  1_000,  5.0,  30.0),
-    (4, "Yellow Corvina",     800,  3.0,  20.0),
-    (4, "Blue Bat Star",      600,  0.1,   1.5),
-    (4, "Requiem Shark",    1_500, 50.0, 300.0),
-    (4, "Giant Black Squid",1_200, 10.0,  80.0),
+    # Ultra Rare (tier 4) — ~300,000–500,000 BDO silver / 1,000
+    (4, "Bigeye Tuna",      300,  20.0, 150.0),
+    (4, "Sunfish",          350,  50.0, 2_000.0),
+    (4, "Swordfish",        400,  30.0, 250.0),
+    (4, "Blowfish",         250,   0.5,   5.0),
+    (4, "Spotted Sea Bass", 280,   1.0,  10.0),
+    # Legendary (tier 5) — BDO prize fish / 1,000
+    (5, "Silver Beltfish",  1_000,  5.0,  30.0),
+    (5, "Yellow Corvina",     800,  3.0,  20.0),
+    (5, "Blue Bat Star",      600,  0.1,   1.5),
+    (5, "Requiem Shark",    1_500, 50.0, 300.0),
+    (5, "Giant Black Squid",1_200, 10.0,  80.0),
 ]
 
 # fish_name → tier lookup for display coloring
@@ -63,16 +77,17 @@ _FISH_ORDER = [f[1] for f in FISH_LOOT[::-1] if f[0] > 0]
 _FISH_PER_PAGE = 3
 _TOP_N         = 5
 
-_FISH_TIER_EMOJI = ["🥾", "🐟", "🐠", "🐡", "🦀"]
+_FISH_TIER_EMOJI = ["🥾", "🐟", "🐠", "🐡", "🦈", "🦀"]
 
 _ANSI_RESET    = "\u001b[0m"
 _ANSI_BAL      = "\u001b[1;37m"   # bold white for balance suffix
 _FISH_TIER_ANSI = [
-    "\u001b[2;37m",  # tier 0 junk:      dim white
-    "\u001b[0;32m",  # tier 1 common:    green
-    "\u001b[0;34m",  # tier 2 uncommon:  blue
-    "\u001b[0;35m",  # tier 3 rare:      purple
-    "\u001b[1;33m",  # tier 4 legendary: bold yellow
+    "\u001b[2;37m",  # tier 0 junk:       dim white
+    "\u001b[0;32m",  # tier 1 common:     green
+    "\u001b[0;34m",  # tier 2 uncommon:   blue
+    "\u001b[0;35m",  # tier 3 rare:       purple
+    "\u001b[1;31m",  # tier 4 ultra rare: bold red
+    "\u001b[1;33m",  # tier 5 legendary:  bold yellow
 ]
 
 
@@ -84,14 +99,16 @@ def _gear_score(rod_id, float_id, bait_id):
     )
 
 def _roll_fish(gear_score):
+    # Max gear_score = rod 7 + float 7 + bait 6 = 20
     weights = [
-        max(2,  30 - gear_score * 2.5),
-        max(10, 40 - gear_score * 1.5),
-        min(45, 18 + gear_score * 2.0),
-        min(30,  8 + gear_score * 2.0),
-        min(15,  4 + gear_score * 0.5),
+        max(2,  30 - gear_score * 1.40),  # junk:       30→2
+        max(5,  40 - gear_score * 1.75),  # common:     40→5
+        min(35, 18 + gear_score * 0.85),  # uncommon:   18→35
+        min(30,  8 + gear_score * 1.10),  # rare:        8→30
+        min(18,  3 + gear_score * 0.75),  # ultra rare:  3→18
+        min(10,  1 + gear_score * 0.45),  # legendary:   1→10
     ]
-    tier = random.choices([0, 1, 2, 3, 4], weights=weights, k=1)[0]
+    tier = random.choices([0, 1, 2, 3, 4, 5], weights=weights, k=1)[0]
     pool = [f for f in FISH_LOOT if f[0] == tier]
     fish = random.choice(pool)
     # fish = (tier, name, value, min_kg, max_kg)
@@ -171,8 +188,8 @@ class BestFishersView(discord.ui.View):
 
 
 class FishingView(discord.ui.View):
-    def __init__(self, caster_id: int):
-        super().__init__(timeout=20)
+    def __init__(self, caster_id: int, timeout: float = 20):
+        super().__init__(timeout=timeout)
         self.caster_id = caster_id
         self.clicked   = False
 
@@ -251,8 +268,18 @@ class FishingCog(commands.Cog, name="Fishing"):
 
         await asyncio.sleep(random.uniform(2, 5))
 
-        view = FishingView(ctx.author.id)
-        embed.description = "🐟 Something's tugging on the line! Quick!"
+        # Pre-roll so we can set the right timeout and message
+        score = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
+        fish_name, value, tier, size_kg = _roll_fish(score)
+
+        is_legendary = (tier == 5)
+        if is_legendary:
+            embed.description = "⚠️ **MASSIVE PULL!** Something enormous is on the line!"
+            embed.color       = 0xffd700
+        else:
+            embed.description = "🐟 Something's tugging on the line! Quick!"
+
+        view = FishingView(ctx.author.id, timeout=3 if is_legendary else 20)
         await cast_msg.edit(embed=embed, view=view)
 
         timed_out = await view.wait()
@@ -269,11 +296,8 @@ class FishingCog(commands.Cog, name="Fishing"):
 
         if profile["active_bait"]:
             await utils.use_bait(discord_id, profile["active_bait"])
-            profile = await utils.get_fishing_profile(discord_id)
 
-        score                         = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
-        fish_name, value, tier, size_kg = _roll_fish(score)
-        new_bal                       = await utils.add_boops(discord_id, value, ctx.author.name)
+        new_bal = await utils.add_boops(discord_id, value, ctx.author.name)
 
         is_pb = False
         if tier > 0:
@@ -319,9 +343,8 @@ class FishingCog(commands.Cog, name="Fishing"):
             if inv.get(item_id, 0) > 0:
                 await ctx.send(f"You already own **{item['name']}**.")
                 return
-        elif item["category"] == "bait" and qty not in BAIT_QUANTITIES:
-            await ctx.send(f"Available quantities: {', '.join(str(q) for q in BAIT_QUANTITIES)}")
-            return
+        elif item["category"] == "bait" and qty < 1:
+            qty = 1
 
         total = item["price"] * qty
         boops = await utils.get_boops(str(ctx.author.id))
