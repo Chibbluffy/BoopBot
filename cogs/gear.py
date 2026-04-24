@@ -81,6 +81,58 @@ class LeaderboardPagination(discord.ui.View):
             await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
 
+class LeaderboardNewPagination(discord.ui.View):
+    def __init__(self, data, title, author_id):
+        super().__init__(timeout=60)
+        self.data         = data
+        self.title        = title
+        self.author_id    = author_id
+        self.per_page     = 15
+        self.current_page = 0
+        self.total_pages  = (len(data) - 1) // self.per_page + 1
+
+    def create_embed(self):
+        start      = self.current_page * self.per_page
+        page_slice = self.data[start:start + self.per_page]
+
+        lines = []
+        for i, (name, ap, aap, dp, gs) in enumerate(page_slice):
+            rank   = start + i + 1
+            gs_str = str(int(gs)) if gs else "—"
+            ap_str  = str(ap)  if ap  else "—"
+            aap_str = str(aap) if aap else "—"
+            dp_str  = str(dp)  if dp  else "—"
+            lines.append(f"**{rank}. {name}**")
+            lines.append(f"GS {gs_str}  ·  {ap_str} / {aap_str} / {dp_str}")
+            lines.append("")
+
+        embed = discord.Embed(
+            title=self.title,
+            description="\n".join(lines).rstrip(),
+            color=discord.Color.blue()
+        )
+        embed.set_footer(text=f"AP / AAP / DP  ·  Page {self.current_page + 1} of {self.total_pages}")
+        return embed
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("This isn't your leaderboard!", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.gray)
+    async def previous_button(self, interaction, button):
+        if self.current_page > 0:
+            self.current_page -= 1
+            await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.gray)
+    async def next_button(self, interaction, button):
+        if self.current_page < self.total_pages - 1:
+            self.current_page += 1
+            await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+
 class GearCog(commands.Cog, name="Gear"):
 
     def __init__(self, bot):
@@ -170,6 +222,15 @@ class GearCog(commands.Cog, name="Gear"):
         if not leaderboard:
             return
         view = LeaderboardPagination(leaderboard, "Guild Gear Score Leaderboard", ctx.author.id)
+        await ctx.send(embed=view.create_embed(), view=view)
+
+    @commands.command()
+    async def gslbnew(self, ctx):
+        """GS leaderboard (new layout, two lines per entry)."""
+        leaderboard = await self._build_table(ctx, sort_col=4, reverse=True)
+        if not leaderboard:
+            return
+        view = LeaderboardNewPagination(leaderboard, "Guild Gear Score Leaderboard", ctx.author.id)
         await ctx.send(embed=view.create_embed(), view=view)
 
     @commands.command()
