@@ -96,7 +96,7 @@ class EconomyCog(commands.Cog, name="Economy"):
             await ctx.send("No one has any boops yet.")
             return
         lines = [f"**{i+1}.** {r['name']} — **{r['boops']:,}** boops" for i, r in enumerate(rows)]
-        embed = discord.Embed(title="💰 Richest Frogs", description="\n".join(lines), color=discord.Color.gold())
+        embed = discord.Embed(title="💰 Richest Boopers", description="\n".join(lines), color=discord.Color.gold())
         await ctx.send(embed=embed)
 
 

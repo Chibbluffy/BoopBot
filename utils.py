@@ -166,6 +166,53 @@ async def add_inventory(discord_id: str, item_id: str, qty: int):
         discord_id, item_id, qty
     )
 
+async def update_fish_record(discord_id: str, fish_name: str, size_kg: float) -> tuple[bool, float | None]:
+    existing = await pool.fetchrow(
+        "SELECT record_kg FROM fish_records WHERE discord_id = $1 AND fish_name = $2",
+        discord_id, fish_name
+    )
+    is_new_record = existing is None or size_kg > existing["record_kg"]
+    if existing is None:
+        await pool.execute(
+            """INSERT INTO fish_records (discord_id, fish_name, record_kg, catch_count, caught_at)
+               VALUES ($1, $2, $3, 1, NOW())""",
+            discord_id, fish_name, size_kg
+        )
+    elif is_new_record:
+        await pool.execute(
+            """UPDATE fish_records SET record_kg = $3, caught_at = NOW(), catch_count = catch_count + 1
+               WHERE discord_id = $1 AND fish_name = $2""",
+            discord_id, fish_name, size_kg
+        )
+    else:
+        await pool.execute(
+            "UPDATE fish_records SET catch_count = catch_count + 1 WHERE discord_id = $1 AND fish_name = $2",
+            discord_id, fish_name
+        )
+    return is_new_record, existing["record_kg"] if existing else None
+
+async def get_fish_records(discord_id: str):
+    return await pool.fetch(
+        """SELECT fish_name, record_kg, catch_count FROM fish_records
+           WHERE discord_id = $1 ORDER BY record_kg DESC""",
+        discord_id
+    )
+
+async def get_all_fish_leaderboards():
+    """Top 5 per fish by record_kg, for all fish with any records."""
+    return await pool.fetch(
+        """SELECT fish_name, name, record_kg FROM (
+               SELECT fr.fish_name,
+                      COALESCE(NULLIF(u.discord_username,''), u.username) AS name,
+                      fr.record_kg,
+                      ROW_NUMBER() OVER (PARTITION BY fr.fish_name ORDER BY fr.record_kg DESC) AS rn
+               FROM fish_records fr
+               JOIN users u ON u.discord_id = fr.discord_id
+           ) sub
+           WHERE rn <= 5
+           ORDER BY fish_name, rn"""
+    )
+
 async def use_bait(discord_id: str, bait_id: str) -> bool:
     result = await pool.execute(
         "UPDATE fishing_inventory SET quantity = quantity - 1 WHERE discord_id = $1 AND item_id = $2 AND quantity > 0",

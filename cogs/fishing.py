@@ -21,27 +21,59 @@ SHOP_ITEMS = {
 
 BAIT_QUANTITIES = [1, 5, 25, 100, 500, 2_000]
 
-# (tier, name, min_boops, max_boops)
+# (tier, name, value, min_kg, max_kg)
 FISH_LOOT = [
-    (0, "Old Boot",            2,    8),
-    (0, "Tin Can",             1,    5),
-    (0, "Seaweed",             3,   10),
-    (1, "Carp",               15,   35),
-    (1, "Perch",              20,   45),
-    (1, "Sardine",            25,   55),
-    (2, "Bass",               60,  120),
-    (2, "Trout",              80,  150),
-    (2, "Catfish",            90,  180),
-    (3, "Tuna",              200,  400),
-    (3, "Swordfish",         300,  500),
-    (3, "Salmon",            250,  450),
-    (4, "Golden Coelacanth", 1_500, 3_000),
-    (4, "Ancient Sturgeon",  2_000, 4_000),
-    (4, "Khalks Crab",       3_000, 5_000),
+    # Junk (tier 0) — no records, no meaningful value
+    (0, "Old Fishing Rod",    1,   0.1,   1.5),
+    (0, "Ripped Tights",      1,   0.05,  0.4),
+    (0, "Broken Bottle",      1,   0.1,   0.8),
+    (0, "Torn Net",           1,   0.2,   1.5),
+    # Common (tier 1) — ~1,500 BDO silver / 1,000
+    (1, "Beltfish",           2,   0.5,   3.0),
+    (1, "Anchovy",            1,   0.05,  0.3),
+    (1, "Dace",               2,   0.1,   1.5),
+    (1, "Grunt",              2,   0.1,   1.5),
+    (1, "Mudskipper",         1,   0.05,  0.3),
+    # Uncommon (tier 2) — ~15,000–29,000 BDO silver / 1,000
+    (2, "Grouper",           18,   2.0,  20.0),
+    (2, "Flounder",          15,   0.5,   5.0),
+    (2, "Croaker",           18,   0.5,   4.0),
+    (2, "Pomfret",           23,   0.5,   3.0),
+    (2, "Angler",            29,   1.0,  10.0),
+    # Rare (tier 3) — ~150,000–165,000 BDO silver / 1,000
+    (3, "Tuna",             154,  30.0, 200.0),
+    (3, "Tilefish",         153,   2.0,  15.0),
+    (3, "Greater Amberjack",157,   5.0,  50.0),
+    (3, "Goliath Grouper",  156,  20.0, 300.0),
+    (3, "Skate",            165,   2.0,  25.0),
+    # Legendary (tier 4) — BDO prize fish / 1,000
+    (4, "Silver Beltfish",  1_000,  5.0,  30.0),
+    (4, "Yellow Corvina",     800,  3.0,  20.0),
+    (4, "Blue Bat Star",      600,  0.1,   1.5),
+    (4, "Requiem Shark",    1_500, 50.0, 300.0),
+    (4, "Giant Black Squid",1_200, 10.0,  80.0),
 ]
 
-_FISH_TIER_EMOJI  = ["🥾", "🐟", "🐠", "🐡", "🦀"]
-_FISH_TIER_COLORS = [0x607080, 0x4CAF50, 0x2196F3, 0x9C27B0, 0xFFD700]
+# fish_name → tier lookup for display coloring
+_FISH_TIER_MAP: dict[str, int] = {f[1]: f[0] for f in FISH_LOOT}
+
+# Non-junk fish in legendary-first order for leaderboard pages
+_FISH_ORDER = [f[1] for f in FISH_LOOT[::-1] if f[0] > 0]
+
+_FISH_PER_PAGE = 3
+_TOP_N         = 5
+
+_FISH_TIER_EMOJI = ["🥾", "🐟", "🐠", "🐡", "🦀"]
+
+_ANSI_RESET    = "\u001b[0m"
+_ANSI_BAL      = "\u001b[1;37m"   # bold white for balance suffix
+_FISH_TIER_ANSI = [
+    "\u001b[2;37m",  # tier 0 junk:      dim white
+    "\u001b[0;32m",  # tier 1 common:    green
+    "\u001b[0;34m",  # tier 2 uncommon:  blue
+    "\u001b[0;35m",  # tier 3 rare:      purple
+    "\u001b[1;33m",  # tier 4 legendary: bold yellow
+]
 
 
 def _gear_score(rod_id, float_id, bait_id):
@@ -62,7 +94,9 @@ def _roll_fish(gear_score):
     tier = random.choices([0, 1, 2, 3, 4], weights=weights, k=1)[0]
     pool = [f for f in FISH_LOOT if f[0] == tier]
     fish = random.choice(pool)
-    return fish[1], random.randint(fish[2], fish[3]), tier
+    # fish = (tier, name, value, min_kg, max_kg)
+    size_kg = round(random.uniform(fish[3], fish[4]), 1)
+    return fish[1], fish[2], tier, size_kg
 
 def _find_item(query: str):
     q = query.lower()
@@ -73,6 +107,67 @@ def _find_item(query: str):
         if q in item["name"].lower() or q in item_id:
             return item_id, item
     return None, None
+
+
+def _build_leaderboard_pages(rows) -> list[str]:
+    from collections import defaultdict
+    by_fish: dict[str, list] = defaultdict(list)
+    for row in rows:
+        by_fish[row["fish_name"]].append(row)
+
+    ordered = [(name, by_fish[name]) for name in _FISH_ORDER if name in by_fish]
+    if not ordered:
+        return []
+
+    total_pages = max(1, -(-len(ordered) // _FISH_PER_PAGE))  # ceiling div
+    pages = []
+    for p, i in enumerate(range(0, len(ordered), _FISH_PER_PAGE), 1):
+        chunk = ordered[i:i + _FISH_PER_PAGE]
+        lines = []
+        for fish_name, entries in chunk:
+            tier  = _FISH_TIER_MAP.get(fish_name, 1)
+            color = _FISH_TIER_ANSI[tier]
+            lines.append(f"{color}{_FISH_TIER_EMOJI[tier]} {fish_name}{_ANSI_RESET}")
+            for j, entry in enumerate(entries, 1):
+                lines.append(f"  {j}. {entry['name']:<16} {entry['record_kg']:.1f} kg")
+            lines.append("")
+        content = (
+            f"🏆 **Best Fishers** — Page {p}/{total_pages}\n"
+            f"```ansi\n{chr(10).join(lines).rstrip()}\n```"
+        )
+        pages.append(content)
+    return pages
+
+
+class BestFishersView(discord.ui.View):
+    def __init__(self, pages: list[str], author_id: int):
+        super().__init__(timeout=120)
+        self.pages     = pages
+        self.page      = 0
+        self.author_id = author_id
+        self._sync_buttons()
+
+    def _sync_buttons(self):
+        self.prev_btn.disabled = self.page == 0
+        self.next_btn.disabled = self.page == len(self.pages) - 1
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("Not your leaderboard!", ephemeral=True)
+            return
+        self.page -= 1
+        self._sync_buttons()
+        await interaction.response.edit_message(content=self.pages[self.page], view=self)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("Not your leaderboard!", ephemeral=True)
+            return
+        self.page += 1
+        self._sync_buttons()
+        await interaction.response.edit_message(content=self.pages[self.page], view=self)
 
 
 class FishingView(discord.ui.View):
@@ -113,37 +208,30 @@ class FishingCog(commands.Cog, name="Fishing"):
                 return log_msg, lines
         return None, []
 
-    async def _update_log(self, ctx, new_line: str, new_bal: int, tier: int):
+    async def _update_log(self, ctx, new_line: str, new_bal: int, tier: int, is_pb: bool = False):
         """Append a catch line to the log, creating or reusing as needed."""
-        key             = (ctx.channel.id, ctx.author.id)
-        log_msg, lines  = await self._get_log(ctx)
+        key            = (ctx.channel.id, ctx.author.id)
+        log_msg, lines = await self._get_log(ctx)
 
-        # Remove old balance suffix from previous last line
-        if lines:
-            lines[-1] = lines[-1].split("  ·  bal:")[0]
+        pb_suffix = f"  \u001b[1;37m★ PB!{_ANSI_RESET}" if is_pb else ""
+        colored   = f"{_FISH_TIER_ANSI[tier]}{new_line}{_ANSI_RESET}{pb_suffix}"
+        lines.append(colored)
 
-        lines.append(new_line)
-
-        # If adding this line would exceed the embed limit, start a fresh log
         body = "\n".join(lines)
         if len(body) > 1800:
-            lines = [new_line]
+            lines   = [colored]
             log_msg = None
 
-        # Append balance to last line
-        display = "\n".join(lines[:-1] + [lines[-1] + f"  ·  bal: **{new_bal:,}**"])
-
-        embed = discord.Embed(
-            title=f"🎣 {ctx.author.display_name}'s Catch Log",
-            description=display,
-            color=_FISH_TIER_COLORS[tier],
+        display = "\n".join(
+            lines[:-1] + [lines[-1] + f"  {_ANSI_BAL}·  bal: {new_bal:,}{_ANSI_RESET}"]
         )
+        content = f"🎣 **{ctx.author.display_name}'s Catch Log**\n```ansi\n{display}\n```"
 
         if log_msg:
-            await log_msg.edit(embed=embed)
+            await log_msg.edit(content=content)
             self._catch_logs[key] = (log_msg, lines)
         else:
-            new_msg = await ctx.send(embed=embed)
+            new_msg = await ctx.send(content=content)
             self._catch_logs[key] = (new_msg, lines)
 
     @commands.command(name="fish")
@@ -183,12 +271,16 @@ class FishingCog(commands.Cog, name="Fishing"):
             await utils.use_bait(discord_id, profile["active_bait"])
             profile = await utils.get_fishing_profile(discord_id)
 
-        score                  = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
-        fish_name, value, tier = _roll_fish(score)
-        new_bal                = await utils.add_boops(discord_id, value, ctx.author.name)
+        score                         = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
+        fish_name, value, tier, size_kg = _roll_fish(score)
+        new_bal                       = await utils.add_boops(discord_id, value, ctx.author.name)
 
-        line = f"{_FISH_TIER_EMOJI[tier]} **{fish_name}** +**{value:,}**"
-        await self._update_log(ctx, line, new_bal, tier)
+        is_pb = False
+        if tier > 0:
+            is_pb, _ = await utils.update_fish_record(discord_id, fish_name, size_kg)
+
+        line = f"{_FISH_TIER_EMOJI[tier]} {fish_name}  {size_kg:.1f} kg  +{value:,}"
+        await self._update_log(ctx, line, new_bal, tier, is_pb)
 
     @commands.command(name="shop")
     async def shop(self, ctx):
@@ -309,6 +401,61 @@ class FishingCog(commands.Cog, name="Fishing"):
             color=discord.Color.dark_green()
         )
         await ctx.send(embed=embed)
+
+    @commands.command(name="fishrecords", aliases=["fishpb"])
+    async def fishrecords(self, ctx, member: discord.Member = None):
+        """View personal fish weight records. Usage: !fishrecords [@user]"""
+        target     = member or ctx.author
+        discord_id = str(target.id)
+        records    = await utils.get_fish_records(discord_id)
+
+        if not records:
+            await ctx.send(f"**{target.display_name}** hasn't caught anything record-worthy yet.")
+            return
+
+        lines = []
+        for row in records:
+            tier  = _FISH_TIER_MAP.get(row["fish_name"], 1)
+            color = _FISH_TIER_ANSI[tier]
+            count = row["catch_count"]
+            lines.append(
+                f"{color}{_FISH_TIER_EMOJI[tier]} {row['fish_name']:<22} {row['record_kg']:>7.1f} kg"
+                f"  ×{count}{_ANSI_RESET}"
+            )
+
+        content = f"🏆 **{target.display_name}'s Fish Records**\n```ansi\n" + "\n".join(lines) + "\n```"
+        await ctx.send(content)
+
+    @commands.command(name="bestfishers")
+    async def bestfishers(self, ctx):
+        """Top 5 weight records per fish, paginated. Usage: !bestfishers"""
+        rows = await utils.get_all_fish_leaderboards()
+        if not rows:
+            await ctx.send("No fish records yet. Get fishing!")
+            return
+
+        pages = _build_leaderboard_pages(rows)
+        if not pages:
+            await ctx.send("No records to display.")
+            return
+
+        view = BestFishersView(pages, ctx.author.id)
+        await ctx.send(pages[0], view=view)
+
+    async def cog_load(self):
+        await utils.pool.execute("""
+            CREATE TABLE IF NOT EXISTS fish_records (
+                discord_id  TEXT        NOT NULL,
+                fish_name   TEXT        NOT NULL,
+                record_kg   REAL        NOT NULL,
+                catch_count INTEGER     NOT NULL DEFAULT 0,
+                caught_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (discord_id, fish_name)
+            )
+        """)
+        await utils.pool.execute(
+            "ALTER TABLE fish_records ADD COLUMN IF NOT EXISTS catch_count INTEGER NOT NULL DEFAULT 0"
+        )
 
 
 async def setup(bot):
