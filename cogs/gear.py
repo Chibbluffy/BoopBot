@@ -1,6 +1,5 @@
 import discord, random
 from discord.ext import commands
-from tabulate import tabulate
 import utils
 
 INVALID_STAT_RESPONSES = [
@@ -14,21 +13,34 @@ INVALID_STAT_RESPONSES = [
 ]
 
 
+_MEDALS = ["🥇", "🥈", "🥉"]
+
 class LeaderboardPagination(discord.ui.View):
     def __init__(self, data, title, author_id):
         super().__init__(timeout=60)
         self.data         = data
         self.title        = title
         self.author_id    = author_id
-        self.per_page     = 20
+        self.per_page     = 15
         self.current_page = 0
         self.total_pages  = (len(data) - 1) // self.per_page + 1
 
     def create_embed(self):
         start      = self.current_page * self.per_page
         page_slice = self.data[start:start + self.per_page]
-        table      = tabulate(page_slice, headers=["User", "AP", "AAP", "DP", "GS"], tablefmt="pretty")
-        embed      = discord.Embed(title=self.title, description=f"```\n{table}\n```", color=discord.Color.blue())
+
+        names, gss, stats = [], [], []
+        for i, (name, ap, aap, dp, gs) in enumerate(page_slice):
+            rank   = start + i
+            prefix = _MEDALS[rank] if rank < 3 else f"{rank + 1}."
+            names.append(f"{prefix} {name}")
+            gss.append(str(int(gs)) if gs else "—")
+            stats.append(f"{ap or '—'} · {aap or '—'} · {dp or '—'}")
+
+        embed = discord.Embed(title=self.title, color=discord.Color.blue())
+        embed.add_field(name="Player",       value="\n".join(names), inline=True)
+        embed.add_field(name="GS",           value="\n".join(gss),   inline=True)
+        embed.add_field(name="AP · AAP · DP", value="\n".join(stats), inline=True)
         embed.set_footer(text=f"Page {self.current_page + 1} of {self.total_pages}")
         return embed
 
@@ -38,13 +50,13 @@ class LeaderboardPagination(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="Prev", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.gray)
     async def previous_button(self, interaction, button):
         if self.current_page > 0:
             self.current_page -= 1
             await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
-    @discord.ui.button(label="Next", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.gray)
     async def next_button(self, interaction, button):
         if self.current_page < self.total_pages - 1:
             self.current_page += 1
@@ -126,13 +138,12 @@ class GearCog(commands.Cog, name="Gear"):
 
     @commands.command(aliases=['gsguild', 'guildgs'])
     async def showguildgs(self, ctx):
-        """Shows the GS of all guild members who have saved stats."""
+        """Shows the GS of all guild members, sorted alphabetically."""
         leaderboard = await self._build_table(ctx, sort_col=0, reverse=False)
         if not leaderboard:
             return
-        table = tabulate(leaderboard, headers=["User", "AP", "AAP", "DP", "GS"], tablefmt="pretty")
-        for chunk in self._chunk_table(table):
-            await ctx.send(f"```\n{chunk}\n```")
+        view = LeaderboardPagination(leaderboard, "Guild Gear Scores", ctx.author.id)
+        await ctx.send(embed=view.create_embed(), view=view)
 
     @commands.command()
     async def gslb(self, ctx):
@@ -151,16 +162,6 @@ class GearCog(commands.Cog, name="Gear"):
             return
         view = LeaderboardPagination(leaderboard, "All Gear Score Leaderboard", ctx.author.id)
         await ctx.send(embed=view.create_embed(), view=view)
-
-    @commands.command()
-    async def oldgslb(self, ctx):
-        """GS leaderboard as plain text (no pagination)."""
-        leaderboard = await self._build_table(ctx, sort_col=4, reverse=True)
-        if not leaderboard:
-            return
-        table = tabulate(leaderboard, headers=["User", "AP", "AAP", "DP", "GS"], tablefmt="pretty")
-        for chunk in self._chunk_table(table):
-            await ctx.send(f"```\n{chunk}\n```")
 
     async def _build_table(self, ctx, sort_col, reverse, members_only=True):
         rows = await utils.db_get_all_with_gs()
@@ -187,19 +188,6 @@ class GearCog(commands.Cog, name="Gear"):
             return None
         leaderboard.sort(key=lambda x: x[sort_col], reverse=reverse)
         return leaderboard
-
-    @staticmethod
-    def _chunk_table(table):
-        chunks, current = [], ""
-        for line in table.split('\n'):
-            if len(current) + len(line) > 1900:
-                chunks.append(current)
-                current = line + "\n"
-            else:
-                current += line + "\n"
-        if current:
-            chunks.append(current)
-        return chunks
 
 
 async def setup(bot):
