@@ -1,6 +1,5 @@
 import discord, random
 from discord.ext import commands
-from wcwidth import wcswidth
 import utils
 
 INVALID_STAT_RESPONSES = [
@@ -14,73 +13,6 @@ INVALID_STAT_RESPONSES = [
 ]
 
 
-def _wc_ljust(s: str, width: int) -> str:
-    """Left-justify s in a field of display-width `width`, accounting for wide chars."""
-    pad = width - wcswidth(s)
-    return s + " " * max(pad, 0)
-
-class LeaderboardPagination(discord.ui.View):
-    def __init__(self, data, title, author_id):
-        super().__init__(timeout=60)
-        self.data         = data
-        self.title        = title
-        self.author_id    = author_id
-        self.per_page     = 20
-        self.current_page = 0
-        self.total_pages  = (len(data) - 1) // self.per_page + 1
-
-    def create_embed(self):
-        start      = self.current_page * self.per_page
-        page_slice = self.data[start:start + self.per_page]
-
-        # Build row data
-        rows = []
-        for i, (name, ap, aap, dp, gs) in enumerate(page_slice):
-            rank   = start + i + 1
-            label  = f"{rank:2}. {name}"
-            gs_str = str(int(gs)) if gs else "—"
-            st_str = f"{ap or '—':>3} · {aap or '—':>3} · {dp or '—':>3}"
-            rows.append((label, gs_str, st_str))
-
-        # Column widths based on actual display width
-        name_w = max(wcswidth(r[0]) for r in rows)
-        gs_w   = max(len(r[1]) for r in rows)
-
-        header_name = _wc_ljust("Name", name_w)
-        header      = f"{header_name}  {'GS':>{gs_w}}  AP  · AAP ·  DP"
-        divider     = "-" * (name_w + gs_w + 18)
-
-        lines = [header, divider]
-        for label, gs_str, st_str in rows:
-            lines.append(f"{_wc_ljust(label, name_w)}  {gs_str:>{gs_w}}  {st_str}")
-
-        embed = discord.Embed(
-            title=self.title,
-            description="```\n" + "\n".join(lines) + "\n```",
-            color=discord.Color.blue()
-        )
-        embed.set_footer(text=f"Page {self.current_page + 1} of {self.total_pages}")
-        return embed
-
-    async def interaction_check(self, interaction):
-        if interaction.user.id != self.author_id:
-            await interaction.response.send_message("This isn't your leaderboard!", ephemeral=True)
-            return False
-        return True
-
-    @discord.ui.button(label="◀", style=discord.ButtonStyle.gray)
-    async def previous_button(self, interaction, button):
-        if self.current_page > 0:
-            self.current_page -= 1
-            await interaction.response.edit_message(embed=self.create_embed(), view=self)
-
-    @discord.ui.button(label="▶", style=discord.ButtonStyle.gray)
-    async def next_button(self, interaction, button):
-        if self.current_page < self.total_pages - 1:
-            self.current_page += 1
-            await interaction.response.edit_message(embed=self.create_embed(), view=self)
-
-
 class LeaderboardNewPagination(discord.ui.View):
     def __init__(self, data, title, author_id):
         super().__init__(timeout=60)
@@ -90,6 +22,11 @@ class LeaderboardNewPagination(discord.ui.View):
         self.per_page     = 15
         self.current_page = 0
         self.total_pages  = (len(data) - 1) // self.per_page + 1
+        self._sync_buttons()
+
+    def _sync_buttons(self):
+        self.previous_button.disabled = self.current_page == 0
+        self.next_button.disabled     = self.current_page == self.total_pages - 1
 
     def create_embed(self):
         start      = self.current_page * self.per_page
@@ -120,15 +57,15 @@ class LeaderboardNewPagination(discord.ui.View):
 
     @discord.ui.button(label="◀", style=discord.ButtonStyle.gray)
     async def previous_button(self, interaction, button):
-        if self.current_page > 0:
-            self.current_page -= 1
-            await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        self.current_page -= 1
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="▶", style=discord.ButtonStyle.gray)
     async def next_button(self, interaction, button):
-        if self.current_page < self.total_pages - 1:
-            self.current_page += 1
-            await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        self.current_page += 1
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
 
 class GearCog(commands.Cog, name="Gear"):
@@ -210,21 +147,12 @@ class GearCog(commands.Cog, name="Gear"):
         leaderboard = await self._build_table(ctx, sort_col=0, reverse=False)
         if not leaderboard:
             return
-        view = LeaderboardPagination(leaderboard, "Guild Gear Scores", ctx.author.id)
+        view = LeaderboardNewPagination(leaderboard, "Guild Gear Scores", ctx.author.id)
         await ctx.send(embed=view.create_embed(), view=view)
 
     @commands.command()
     async def gslb(self, ctx):
         """GS leaderboard for guild members (paginated)."""
-        leaderboard = await self._build_table(ctx, sort_col=4, reverse=True)
-        if not leaderboard:
-            return
-        view = LeaderboardPagination(leaderboard, "Guild Gear Score Leaderboard", ctx.author.id)
-        await ctx.send(embed=view.create_embed(), view=view)
-
-    @commands.command()
-    async def gslbnew(self, ctx):
-        """GS leaderboard (new layout, two lines per entry)."""
         leaderboard = await self._build_table(ctx, sort_col=4, reverse=True)
         if not leaderboard:
             return
@@ -237,7 +165,7 @@ class GearCog(commands.Cog, name="Gear"):
         leaderboard = await self._build_table(ctx, sort_col=4, reverse=True, members_only=False)
         if not leaderboard:
             return
-        view = LeaderboardPagination(leaderboard, "All Gear Score Leaderboard", ctx.author.id)
+        view = LeaderboardNewPagination(leaderboard, "All Gear Score Leaderboard", ctx.author.id)
         await ctx.send(embed=view.create_embed(), view=view)
 
     async def _build_table(self, ctx, sort_col, reverse, members_only=True):
