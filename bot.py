@@ -1,10 +1,10 @@
 import discord, asyncio, os, asyncpg, traceback
 from discord.ext import commands
 from dotenv import load_dotenv
+load_dotenv()
+
 import google.generativeai as genai
 import utils
-
-load_dotenv()
 
 TOKEN               = os.getenv("BOT_TOKEN")
 DATABASE_URL        = os.getenv("DATABASE_URL")
