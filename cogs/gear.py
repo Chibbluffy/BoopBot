@@ -104,7 +104,6 @@ class LeaderboardNewPagination(discord.ui.View):
             dp_str  = str(dp)  if dp  else "—"
             lines.append(f"**{rank}. {name}**")
             lines.append(f"GS {gs_str}  ·  {ap_str} / {aap_str} / {dp_str}")
-            lines.append("")
 
         embed = discord.Embed(
             title=self.title,
