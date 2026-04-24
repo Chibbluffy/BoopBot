@@ -151,7 +151,7 @@ async def main():
 
         # Chatbot state stored on bot instance so cogs can access it
         genai.configure(api_key=GOOGLE_API_KEY)
-        bot._models    = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-pro']
+        bot._models    = ['gemini-2.5-flash-lite', 'gemini-2.5-flash']
         bot._model_idx = 0
         with open(CHATBOT_CONTEXT_FILE, 'r') as f:
             bot._context = f.read()
