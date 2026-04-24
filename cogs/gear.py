@@ -1,5 +1,6 @@
 import discord, random
 from discord.ext import commands
+from wcwidth import wcswidth
 import utils
 
 INVALID_STAT_RESPONSES = [
@@ -15,6 +16,11 @@ INVALID_STAT_RESPONSES = [
 
 _MEDALS = ["🥇", "🥈", "🥉"]
 
+def _wc_ljust(s: str, width: int) -> str:
+    """Left-justify s in a field of display-width `width`, accounting for wide chars."""
+    pad = width - wcswidth(s)
+    return s + " " * max(pad, 0)
+
 class LeaderboardPagination(discord.ui.View):
     def __init__(self, data, title, author_id):
         super().__init__(timeout=60)
@@ -29,18 +35,29 @@ class LeaderboardPagination(discord.ui.View):
         start      = self.current_page * self.per_page
         page_slice = self.data[start:start + self.per_page]
 
-        names, gss, stats = [], [], []
+        # Build row data
+        rows = []
         for i, (name, ap, aap, dp, gs) in enumerate(page_slice):
             rank   = start + i
-            prefix = _MEDALS[rank] if rank < 3 else f"{rank + 1}."
-            names.append(f"{prefix} {name}")
-            gss.append(str(int(gs)) if gs else "—")
-            stats.append(f"{ap or '—'} · {aap or '—'} · {dp or '—'}")
+            prefix = _MEDALS[rank] if rank < 3 else f"{rank + 1:2}."
+            label  = f"{prefix} {name}"
+            gs_str = str(int(gs)) if gs else "—"
+            st_str = f"{ap or '—':>3} · {aap or '—':>3} · {dp or '—':>3}"
+            rows.append((label, gs_str, st_str))
 
-        embed = discord.Embed(title=self.title, color=discord.Color.blue())
-        embed.add_field(name="Player",       value="\n".join(names), inline=True)
-        embed.add_field(name="GS",           value="\n".join(gss),   inline=True)
-        embed.add_field(name="AP · AAP · DP", value="\n".join(stats), inline=True)
+        # Column widths based on actual display width
+        name_w = max(wcswidth(r[0]) for r in rows)
+        gs_w   = max(len(r[1]) for r in rows)
+
+        lines = []
+        for label, gs_str, st_str in rows:
+            lines.append(f"{_wc_ljust(label, name_w)}  {gs_str:>{gs_w}}  {st_str}")
+
+        embed = discord.Embed(
+            title=self.title,
+            description="```\n" + "\n".join(lines) + "\n```",
+            color=discord.Color.blue()
+        )
         embed.set_footer(text=f"Page {self.current_page + 1} of {self.total_pages}")
         return embed
 

@@ -1,5 +1,5 @@
 discord.py
-tabulate
+wcwidth
 dotenv
 requests
 beautifulsoup4
