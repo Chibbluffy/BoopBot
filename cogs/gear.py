@@ -14,8 +14,6 @@ INVALID_STAT_RESPONSES = [
 ]
 
 
-_MEDALS = ["🥇", "🥈", "🥉"]
-
 def _wc_ljust(s: str, width: int) -> str:
     """Left-justify s in a field of display-width `width`, accounting for wide chars."""
     pad = width - wcswidth(s)
@@ -27,7 +25,7 @@ class LeaderboardPagination(discord.ui.View):
         self.data         = data
         self.title        = title
         self.author_id    = author_id
-        self.per_page     = 15
+        self.per_page     = 20
         self.current_page = 0
         self.total_pages  = (len(data) - 1) // self.per_page + 1
 
@@ -38,9 +36,8 @@ class LeaderboardPagination(discord.ui.View):
         # Build row data
         rows = []
         for i, (name, ap, aap, dp, gs) in enumerate(page_slice):
-            rank   = start + i
-            prefix = _MEDALS[rank] if rank < 3 else f"{rank + 1:2}."
-            label  = f"{prefix} {name}"
+            rank   = start + i + 1
+            label  = f"{rank:2}. {name}"
             gs_str = str(int(gs)) if gs else "—"
             st_str = f"{ap or '—':>3} · {aap or '—':>3} · {dp or '—':>3}"
             rows.append((label, gs_str, st_str))
@@ -49,7 +46,11 @@ class LeaderboardPagination(discord.ui.View):
         name_w = max(wcswidth(r[0]) for r in rows)
         gs_w   = max(len(r[1]) for r in rows)
 
-        lines = []
+        header_name = _wc_ljust("Name", name_w)
+        header      = f"{header_name}  {'GS':>{gs_w}}  AP  · AAP ·  DP"
+        divider     = "-" * (name_w + gs_w + 18)
+
+        lines = [header, divider]
         for label, gs_str, st_str in rows:
             lines.append(f"{_wc_ljust(label, name_w)}  {gs_str:>{gs_w}}  {st_str}")
 
