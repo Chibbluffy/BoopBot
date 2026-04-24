@@ -36,36 +36,36 @@ FISH_LOOT = [
     (0, "Ripped Tights",      1,   0.05,  0.4),
     (0, "Broken Bottle",      1,   0.1,   0.8),
     (0, "Torn Net",           1,   0.2,   1.5),
-    # Common (tier 1) — ~1,500 BDO silver / 1,000
-    (1, "Beltfish",           2,   0.5,   3.0),
-    (1, "Anchovy",            1,   0.05,  0.3),
-    (1, "Dace",               2,   0.1,   1.5),
-    (1, "Grunt",              2,   0.1,   1.5),
-    (1, "Mudskipper",         1,   0.05,  0.3),
-    # Uncommon (tier 2) — ~15,000–29,000 BDO silver / 1,000
-    (2, "Grouper",           18,   2.0,  20.0),
-    (2, "Flounder",          15,   0.5,   5.0),
-    (2, "Croaker",           18,   0.5,   4.0),
-    (2, "Pomfret",           23,   0.5,   3.0),
-    (2, "Angler",            29,   1.0,  10.0),
-    # Rare (tier 3) — ~150,000–165,000 BDO silver / 1,000
-    (3, "Tuna",             154,  30.0, 200.0),
-    (3, "Tilefish",         153,   2.0,  15.0),
-    (3, "Greater Amberjack",157,   5.0,  50.0),
-    (3, "Goliath Grouper",  156,  20.0, 300.0),
-    (3, "Skate",            165,   2.0,  25.0),
-    # Ultra Rare (tier 4) — ~300,000–500,000 BDO silver / 1,000
-    (4, "Bigeye Tuna",      300,  20.0, 150.0),
-    (4, "Sunfish",          350,  50.0, 2_000.0),
-    (4, "Swordfish",        400,  30.0, 250.0),
-    (4, "Blowfish",         250,   0.5,   5.0),
-    (4, "Spotted Sea Bass", 280,   1.0,  10.0),
-    # Legendary (tier 5) — BDO prize fish / 1,000
-    (5, "Silver Beltfish",  1_000,  5.0,  30.0),
-    (5, "Yellow Corvina",     800,  3.0,  20.0),
-    (5, "Blue Bat Star",      600,  0.1,   1.5),
-    (5, "Requiem Shark",    1_500, 50.0, 300.0),
-    (5, "Giant Black Squid",1_200, 10.0,  80.0),
+    # Common (tier 1) — 10–20 boops
+    (1, "Beltfish",          15,   0.5,   3.0),
+    (1, "Anchovy",           10,   0.05,  0.3),
+    (1, "Dace",              12,   0.1,   1.5),
+    (1, "Grunt",             13,   0.1,   1.5),
+    (1, "Mudskipper",        11,   0.05,  0.3),
+    # Uncommon (tier 2) — 50–100 boops
+    (2, "Grouper",           75,   2.0,  20.0),
+    (2, "Flounder",          60,   0.5,   5.0),
+    (2, "Croaker",           65,   0.5,   4.0),
+    (2, "Pomfret",           80,   0.5,   3.0),
+    (2, "Angler",            90,   1.0,  10.0),
+    # Rare (tier 3) — 200–500 boops
+    (3, "Tuna",             350,  30.0, 200.0),
+    (3, "Tilefish",         280,   2.0,  15.0),
+    (3, "Greater Amberjack",400,   5.0,  50.0),
+    (3, "Goliath Grouper",  450,  20.0, 300.0),
+    (3, "Skate",            220,   2.0,  25.0),
+    # Ultra Rare (tier 4) — 1,000–5,000 boops
+    (4, "Bigeye Tuna",    1_500,  20.0, 150.0),
+    (4, "Sunfish",        3_000,  50.0, 2_000.0),
+    (4, "Swordfish",      2_500,  30.0, 250.0),
+    (4, "Blowfish",       1_000,   0.5,   5.0),
+    (4, "Spotted Sea Bass",1_200,  1.0,  10.0),
+    # Legendary (tier 5) — 20,000+ boops, requires GS 10+
+    (5, "Silver Beltfish", 25_000,  5.0,  30.0),
+    (5, "Yellow Corvina",  22_000,  3.0,  20.0),
+    (5, "Blue Bat Star",   20_000,  0.1,   1.5),
+    (5, "Requiem Shark",   50_000, 50.0, 300.0),
+    (5, "Giant Black Squid",35_000,10.0,  80.0),
 ]
 
 # fish_name → tier lookup for display coloring
@@ -99,16 +99,22 @@ def _gear_score(rod_id, float_id, bait_id):
     )
 
 def _roll_fish(gear_score):
-    # Max gear_score = rod 7 + float 7 + bait 6 = 20
-    weights = [
-        max(2,  30 - gear_score * 1.40),  # junk:       30→2
-        max(5,  40 - gear_score * 1.75),  # common:     40→5
-        min(35, 18 + gear_score * 0.85),  # uncommon:   18→35
-        min(30,  8 + gear_score * 1.10),  # rare:        8→30
-        min(18,  3 + gear_score * 0.75),  # ultra rare:  3→18
-        min(10,  1 + gear_score * 0.45),  # legendary:   1→10
+    # Max gear_score = rod 7 + float 7 + bait 6 = 20.
+    # Exponential curves so early GS upgrades feel impactful.
+    gs = gear_score
+    base_weights = [
+        max(1,  40 * (0.75 ** gs)),         # junk:      40→1  (halves every ~2.4 GS)
+        max(3,  35 * (0.88 ** gs)),         # common:    35→3  (slower decay)
+        max(8,  17 + gs*2 - gs*gs*0.3),    # uncommon:  peaks ~GS3, floors at 8
+        min(60,  6 * (1.38 ** gs)),         # rare:       6→60 (caps around GS8)
+        min(28,  2 * (1.40 ** gs)),         # ultra rare: 2→28 (caps around GS9)
     ]
-    tier = random.choices([0, 1, 2, 3, 4, 5], weights=weights, k=1)[0]
+    # Legendary locked until GS 10; exactly 1/2/3/4/5% at GS 10/12/14/16/18+
+    target_leg_pct = min(5.0, max(0.0, (gs - 8) * 0.5))
+    other_sum      = sum(base_weights)
+    legendary_w    = (target_leg_pct / (100.0 - target_leg_pct)) * other_sum
+    weights        = base_weights + [legendary_w]
+    tier           = random.choices([0, 1, 2, 3, 4, 5], weights=weights, k=1)[0]
     pool = [f for f in FISH_LOOT if f[0] == tier]
     fish = random.choice(pool)
     # fish = (tier, name, value, min_kg, max_kg)
