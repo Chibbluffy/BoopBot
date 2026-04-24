@@ -213,7 +213,7 @@ class FishingCog(commands.Cog, name="Fishing"):
         key            = (ctx.channel.id, ctx.author.id)
         log_msg, lines = await self._get_log(ctx)
 
-        pb_suffix = f"  \u001b[1;37m★ PB!{_ANSI_RESET}" if is_pb else ""
+        pb_suffix = f"  \u001b[1;37m★ Personal Best!{_ANSI_RESET}" if is_pb else ""
         colored   = f"{_FISH_TIER_ANSI[tier]}{new_line}{_ANSI_RESET}{pb_suffix}"
         lines.append(colored)
 
@@ -223,7 +223,7 @@ class FishingCog(commands.Cog, name="Fishing"):
             log_msg = None
 
         display = "\n".join(
-            lines[:-1] + [lines[-1] + f"  {_ANSI_BAL}·  bal: {new_bal:,}{_ANSI_RESET}"]
+            lines[:-1] + [lines[-1] + f"  {_ANSI_BAL}·  Boop Balance: {new_bal:,}{_ANSI_RESET}"]
         )
         content = f"🎣 **{ctx.author.display_name}'s Catch Log**\n```ansi\n{display}\n```"
 
