@@ -89,8 +89,12 @@ async def db_get_user_gear(discord_id):
 
 async def db_get_all_with_gs():
     return await pool.fetch(
-        """SELECT discord_id, discord_username, gear_ap, gear_aap, gear_dp FROM users
-           WHERE gear_ap IS NOT NULL AND gear_aap IS NOT NULL AND gear_dp IS NOT NULL
+        """SELECT discord_id, discord_username,
+                  COALESCE(gear_ap, 0)  AS gear_ap,
+                  COALESCE(gear_aap, 0) AS gear_aap,
+                  COALESCE(gear_dp, 0)  AS gear_dp
+           FROM users
+           WHERE (gear_ap IS NOT NULL OR gear_aap IS NOT NULL OR gear_dp IS NOT NULL)
              AND discord_id IS NOT NULL"""
     )
 
