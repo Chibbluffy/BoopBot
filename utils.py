@@ -33,7 +33,7 @@ def split_reply(reply):
     return reply[:1999], reply[1999:]
 
 def calculate_gs(ap, aap, dp):
-    return (ap + aap) / 2 + dp
+    return max(ap, aap) + dp
 
 # ── Auth helpers ───────────────────────────────────────────────────────────────
 
