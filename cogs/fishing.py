@@ -540,7 +540,7 @@ class FishingCog(commands.Cog, name="Fishing"):
             await self._update_log(ctx, "🌊 Got away...", await utils.get_boops(discord_id), 0)
             return
 
-        if profile["active_bait"]:
+        if profile["active_bait"] and tier > 0:
             await utils.use_bait(discord_id, profile["active_bait"])
 
         new_bal = await utils.add_boops(discord_id, value, ctx.author.name)
