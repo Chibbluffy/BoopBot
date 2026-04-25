@@ -694,11 +694,20 @@ class FishingCog(commands.Cog, name="Fishing"):
 
         mystical_count = inv.get("mystical_fish", 0)
         if mystical_count > 0:
-            focus      = profile.get("mystical_active", 0)
-            focus_str  = f" · Focus: **{_TIER_NAMES[focus]}**" if focus > 0 else " · Focus: **Off**"
-            title      = "✨ **Fish Whisperer**" if mystical_count >= _MYSTICAL_MAX else f"✨ **Mystical Fish ×{mystical_count}**"
+            focus       = profile.get("mystical_active", 0)
+            orbs        = ["🔴", "🟠", "🟡", "🟢", "🔵"]
+            bar         = "".join(orbs[:mystical_count]) + "⬛" * (_MYSTICAL_MAX - mystical_count)
+            focus_str   = f"🎯 Focus: **{_TIER_NAMES[focus]}**" if focus > 0 else "🎯 Focus: **Off**"
+            if mystical_count >= _MYSTICAL_MAX:
+                header  = "✨ **F I S H  W H I S P E R E R** ✨"
+            else:
+                header  = f"✨ **Mystical Fish**  {mystical_count} / {_MYSTICAL_MAX}"
             lines.append("")
-            lines.append(f"{title}{focus_str}")
+            lines.append("─────────────────────")
+            lines.append(header)
+            lines.append(bar)
+            lines.append(focus_str)
+            lines.append("─────────────────────")
 
         embed = discord.Embed(
             title=f"🎒 {ctx.author.display_name}'s Inventory",
