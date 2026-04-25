@@ -462,7 +462,7 @@ class FishingCog(commands.Cog, name="Fishing"):
         score = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
 
         # Mystical fish check — GS 20 only, 0.1% chance
-        if score == 20 and random.random() < _MYSTICAL_CHANCE:
+        if score >= 10 and random.random() < _MYSTICAL_CHANCE:
             try:
                 await cast_msg.delete()
             except discord.NotFound:
