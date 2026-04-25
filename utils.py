@@ -146,14 +146,14 @@ async def transfer_boops(from_id: str, to_id: str, amount: int) -> bool:
 
 async def get_fishing_profile(discord_id: str) -> dict:
     row = await pool.fetchrow(
-        "SELECT active_rod, active_float, active_bait FROM fishing_profile WHERE discord_id = $1",
+        "SELECT active_rod, active_float, active_bait, mystical_active FROM fishing_profile WHERE discord_id = $1",
         discord_id
     )
     if not row:
         await pool.execute(
             "INSERT INTO fishing_profile (discord_id) VALUES ($1) ON CONFLICT DO NOTHING", discord_id
         )
-        return {"active_rod": "rod_starter", "active_float": None, "active_bait": None}
+        return {"active_rod": "rod_starter", "active_float": None, "active_bait": None, "mystical_active": 0}
     return dict(row)
 
 async def get_inventory(discord_id: str) -> dict:

@@ -84,8 +84,6 @@ FISH_LOOT = [
     (5, "Koi",             75_000, 10.0,  80.0),
     (5, "Tripod Fish",     72_000, 10.0,  80.0),
     (5, "Dorado",          58_000, 10.0,  80.0),
-    (6, "Mystical Fish",        0, 10.0,  80.0),
-
 ]
 
 # fish_name → tier lookup for display coloring
@@ -138,6 +136,18 @@ def _roll_fish(gear_score):
     pool = [f for f in FISH_LOOT if f[0] == tier]
     fish = random.choice(pool)
     # fish = (tier, name, value, min_kg, max_kg)
+    size_kg = round(random.uniform(fish[3], fish[4]), 1)
+    return fish[1], fish[2], tier, size_kg
+
+_MYSTICAL_MAX       = 5
+_MYSTICAL_CHANCE    = 0.001   # 0.1% per cast at GS 20
+_ANSI_MYSTICAL      = "\u001b[1;36m"  # bold cyan
+_TIER_NAMES         = ["Junk", "Common", "Uncommon", "Rare", "Ultra Rare", "Legendary"]
+
+def _roll_forced_tier(tier: int):
+    """Roll a random fish from a specific tier (used by Fish Whisperer mode)."""
+    pool    = [f for f in FISH_LOOT if f[0] == tier]
+    fish    = random.choice(pool)
     size_kg = round(random.uniform(fish[3], fish[4]), 1)
     return fish[1], fish[2], tier, size_kg
 
@@ -280,22 +290,72 @@ class FishingCog(commands.Cog, name="Fishing"):
     @commands.command(name="fish")
     async def fish(self, ctx):
         """Cast your line and catch fish for boops!"""
-        discord_id = str(ctx.author.id)
-        profile    = await utils.get_fishing_profile(discord_id)
+        discord_id      = str(ctx.author.id)
+        profile         = await utils.get_fishing_profile(discord_id)
+        mystical_active = profile.get("mystical_active", 0)
 
-        # Delete the !fish command to keep chat clean
         try:
             await ctx.message.delete()
         except discord.Forbidden:
             pass
 
+        # ── Fish Whisperer mode: instant forced-tier catch ─────────────────────
+        if mystical_active > 0:
+            fish_name, value, tier, size_kg = _roll_forced_tier(mystical_active)
+
+            if profile["active_bait"]:
+                await utils.use_bait(discord_id, profile["active_bait"])
+
+            new_bal = await utils.add_boops(discord_id, value, ctx.author.name)
+            is_pb   = False
+            if tier > 0:
+                is_pb, _ = await utils.update_fish_record(discord_id, fish_name, size_kg)
+
+            line = f"{_FISH_TIER_EMOJI[tier]} {fish_name}  {size_kg:.1f} kg  +{value:,}"
+            await self._update_log(ctx, line, new_bal, tier, is_pb)
+            return
+
+        # ── Normal fishing flow ────────────────────────────────────────────────
         embed    = discord.Embed(description="🎣 Casting your line...", color=0x1e90ff)
         cast_msg = await ctx.send(embed=embed)
 
         await asyncio.sleep(random.uniform(2, 5))
 
-        # Pre-roll so we can set the right timeout and message
         score = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
+
+        # Mystical fish check — GS 20 only, 0.1% chance
+        if score == 20 and random.random() < _MYSTICAL_CHANCE:
+            try:
+                await cast_msg.delete()
+            except discord.NotFound:
+                pass
+
+            inv            = await utils.get_inventory(discord_id)
+            mystical_count = inv.get("mystical_fish", 0)
+
+            if mystical_count < _MYSTICAL_MAX:
+                await utils.add_inventory(discord_id, "mystical_fish", 1)
+                new_count = mystical_count + 1
+
+                if profile["active_bait"]:
+                    await utils.use_bait(discord_id, profile["active_bait"])
+
+                if new_count == _MYSTICAL_MAX:
+                    embed_m = discord.Embed(
+                        title="✨ Fish Whisperer",
+                        description="The ocean bows to you.\nAll Mystical Fish collected. Use `!fishfocus` to command the tides.",
+                        color=0x00ffff
+                    )
+                else:
+                    embed_m = discord.Embed(
+                        title="✨ A Mystical Fish...",
+                        description=f"Something otherworldly slipped onto your line.\n**Mystical Fish ×{new_count}**",
+                        color=0x00ffff
+                    )
+                await ctx.send(embed=embed_m)
+            return
+
+        # Pre-roll so we know if it's legendary before showing the button
         fish_name, value, tier, size_kg = _roll_fish(score)
 
         is_legendary = (tier == 5)
@@ -310,7 +370,6 @@ class FishingCog(commands.Cog, name="Fishing"):
 
         timed_out = await view.wait()
 
-        # Always delete the cast/reel message before showing results
         try:
             await cast_msg.delete()
         except discord.NotFound:
@@ -415,6 +474,30 @@ class FishingCog(commands.Cog, name="Fishing"):
         )
         await ctx.send(f"✅ Unequipped **{item['name']}**.")
 
+    @commands.command(name="fishfocus")
+    async def fishfocus(self, ctx, level: int):
+        """Set Fish Whisperer focus tier (0=off, 1-5). Usage: !fishfocus <0-5>"""
+        discord_id     = str(ctx.author.id)
+        inv            = await utils.get_inventory(discord_id)
+        mystical_count = inv.get("mystical_fish", 0)
+
+        if not 0 <= level <= 5:
+            await ctx.send("Focus level must be 0 (off) through 5.")
+            return
+        if level > mystical_count:
+            await ctx.send(f"You only have **{mystical_count}** Mystical Fish. You can't set focus to {level}.")
+            return
+
+        await utils.pool.execute(
+            "UPDATE fishing_profile SET mystical_active = $1 WHERE discord_id = $2",
+            level, discord_id
+        )
+
+        if level == 0:
+            await ctx.send("✅ Fish Whisperer disabled. Back to normal fishing.")
+        else:
+            await ctx.send(f"✅ Fish Whisperer focus set to **{_TIER_NAMES[level]}**. Instant catch active.")
+
     @commands.command(name="inventory", aliases=["inv"])
     async def inventory(self, ctx):
         """View your fishing gear and bait."""
@@ -435,13 +518,21 @@ class FishingCog(commands.Cog, name="Fishing"):
         equipped  = {profile["active_rod"], profile["active_float"], profile["active_bait"]}
         has_items = False
         for item_id, qty in inv.items():
-            if qty <= 0: continue
+            if qty <= 0 or item_id == "mystical_fish": continue
             name = SHOP_ITEMS.get(item_id, {}).get("name", item_id)
             tag  = " *(equipped)*" if item_id in equipped else ""
             lines.append(f"  {name} ×{qty}{tag}")
             has_items = True
         if not has_items:
             lines.append("  Nothing yet. Visit `!shop`!")
+
+        mystical_count = inv.get("mystical_fish", 0)
+        if mystical_count > 0:
+            focus      = profile.get("mystical_active", 0)
+            focus_str  = f" · Focus: **{_TIER_NAMES[focus]}**" if focus > 0 else " · Focus: **Off**"
+            title      = "✨ **Fish Whisperer**" if mystical_count >= _MYSTICAL_MAX else f"✨ **Mystical Fish ×{mystical_count}**"
+            lines.append("")
+            lines.append(f"{title}{focus_str}")
 
         embed = discord.Embed(
             title=f"🎒 {ctx.author.display_name}'s Inventory",
@@ -503,6 +594,9 @@ class FishingCog(commands.Cog, name="Fishing"):
         """)
         await utils.pool.execute(
             "ALTER TABLE fish_records ADD COLUMN IF NOT EXISTS catch_count INTEGER NOT NULL DEFAULT 0"
+        )
+        await utils.pool.execute(
+            "ALTER TABLE fishing_profile ADD COLUMN IF NOT EXISTS mystical_active INTEGER NOT NULL DEFAULT 0"
         )
 
 
