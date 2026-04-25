@@ -155,8 +155,7 @@ async def main():
         bot._model_idx = 0
         with open(CHATBOT_CONTEXT_FILE, 'r') as f:
             bot._context = f.read()
-        bot._chat = genai.GenerativeModel(bot._models[0]).start_chat(history=[])
-        print(bot._chat.send_message(bot._context))
+        bot._chat = None  # initialized lazily on first mention
 
         for ext in _COGS:
             await bot.load_extension(ext)
