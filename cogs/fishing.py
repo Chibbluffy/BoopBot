@@ -388,7 +388,7 @@ class FishingCog(commands.Cog, name="Fishing"):
                 is_pb, _ = await utils.update_fish_record(discord_id, fish_name, size_kg)
 
             size_part = f"  {_fmt_size(size_kg)}" if tier > 0 else ""
-        line      = f"{_FISH_TIER_EMOJI[tier]} {fish_name}{size_part}  +{value:,}"
+            line      = f"{_FISH_TIER_EMOJI[tier]} {fish_name}{size_part}  +{value:,}"
             await self._update_log(ctx, line, new_bal, tier, is_pb)
             return
 
