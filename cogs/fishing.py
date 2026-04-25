@@ -197,7 +197,7 @@ def _roll_fish(gear_score):
     tier    = random.choices([0, 1, 2, 3, 4, 5], weights=weights, k=1)[0]
     pool    = [f for f in FISH_LOOT if f[0] == tier]
     fish    = random.choice(pool)
-    size_kg = round(random.uniform(fish[3], fish[4]), 1)
+    size_kg = random.uniform(fish[3], fish[4])
     return fish[1], fish[2], tier, size_kg
 
 def _fmt_size(size_kg: float) -> str:
@@ -221,7 +221,7 @@ def _roll_forced_tier(tier: int):
     """Roll a random fish from a specific tier (used by Fish Whisperer mode)."""
     pool    = [f for f in FISH_LOOT if f[0] == tier]
     fish    = random.choice(pool)
-    size_kg = round(random.uniform(fish[3], fish[4]), 1)
+    size_kg = random.uniform(fish[3], fish[4])
     return fish[1], fish[2], tier, size_kg
 
 def _find_item(query: str):
