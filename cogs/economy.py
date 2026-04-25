@@ -25,7 +25,7 @@ class EconomyCog(commands.Cog, name="Economy"):
 
     @commands.command(name="daily")
     async def daily(self, ctx):
-        """Collect 100 boops. Usable once every 23 hours."""
+        """Collect 1000 boops. Usable once every 23 hours."""
         discord_id = str(ctx.author.id)
         await utils.ensure_economy_user(discord_id, ctx.author.name)
         row = await utils.pool.fetchrow(
@@ -43,8 +43,8 @@ class EconomyCog(commands.Cog, name="Economy"):
         await utils.pool.execute(
             "UPDATE users SET daily_last = $2 WHERE discord_id = $1", discord_id, now
         )
-        new_bal = await utils.add_boops(discord_id, 100, ctx.author.name)
-        await ctx.send(f"✅ {ctx.author.mention} collected **100** boops! Balance: **{new_bal:,}**")
+        new_bal = await utils.add_boops(discord_id, 1000, ctx.author.name)
+        await ctx.send(f"✅ {ctx.author.mention} collected **1,000** boops! Balance: **{new_bal:,}**")
 
     @commands.command(name="beg")
     async def beg(self, ctx):
