@@ -30,60 +30,60 @@ SHOP_ITEMS = {
 
 # (tier, name, value, min_kg, max_kg)
 FISH_LOOT = [
-    # Junk (tier 0) — no records, no meaningful value
-    (0, "Broken Fishing Rod",     1,   0.1,   1.5),
-    (0, "Tin Can",                1,   0.05,  0.4),
-    (0, "Broken Bottle",          1,   0.1,   0.8),
-    (0, "Torn Net",               1,   0.2,   1.5),
-    (0, "Fish Bones",             1,   0.2,   1.5),
-    (0, "Snapped Rope",           1,   0.2,   1.5),
-    (0, "Tattered Boots",         1,   0.2,   1.5),
-    (0, "Seaweed",                1,   0.2,   1.5),
-    (0, "Broken Bottle Fragement",1,   0.2,   1.5),
+    # Junk (tier 0) — no records, no size
+    (0, "Broken Fishing Rod",      1,  0.0,   0.0),
+    (0, "Tin Can",                 1,  0.0,   0.0),
+    (0, "Broken Bottle",           1,  0.0,   0.0),
+    (0, "Torn Net",                1,  0.0,   0.0),
+    (0, "Fish Bones",              1,  0.0,   0.0),
+    (0, "Snapped Rope",            1,  0.0,   0.0),
+    (0, "Tattered Boots",          1,  0.0,   0.0),
+    (0, "Seaweed",                 1,  0.0,   0.0),
+    (0, "Broken Bottle Fragment",  1,  0.0,   0.0),
     # Common (tier 1) — 10–20 boops
-    (1, "Beltfish",          15,   0.5,   3.0),
-    (1, "Anchovy",           10,   0.05,  0.3),
-    (1, "Dace",              12,   0.1,   1.5),
-    (1, "Grunt",             13,   0.1,   1.5),
-    (1, "Mudskipper",        16,   0.05,  0.3),
+    (1, "Beltfish",          15,   0.2,   2.5),
+    (1, "Anchovy",           10,   0.01,  0.05),
+    (1, "Dace",              12,   0.05,  0.5),
+    (1, "Grunt",             13,   0.1,   0.8),
+    (1, "Mudskipper",        16,   0.05,  0.25),
     # Uncommon (tier 2) — 50–100 boops
-    (2, "Grouper",           75,   2.0,  20.0),
-    (2, "Flounder",          60,   0.5,   5.0),
-    (2, "Croaker",           65,   0.5,   4.0),
-    (2, "Pomfret",           80,   0.5,   3.0),
-    (2, "Angler",            90,   1.0,  10.0),
+    (2, "Grouper",           75,   1.0,  15.0),
+    (2, "Flounder",          60,   0.3,   4.0),
+    (2, "Croaker",           65,   0.2,   3.0),
+    (2, "Pomfret",           80,   0.3,   2.5),
+    (2, "Angler",            90,   0.1,   1.5),
     # Rare (tier 3) — 200–500 boops
-    (3, "Tuna",                  350,  30.0, 200.0),
-    (3, "Tilefish",              280,   2.0,  15.0),
-    (3, "Greater Amberjack",     400,   5.0,  50.0),
-    (3, "Goliath Grouper",       450,  20.0, 300.0),
-    (3, "Skate",                 220,   2.0,  25.0),
-    (3, "Giant Talking Catfish", 128,   1.0,  10.0),
-    # Ultra Rare (tier 4) — 1,000–5,000 boops
-    (4, "Blue Bat Star",   1_600,  20.0, 150.0),
-    (4, "Footballfish",    8_000,  20.0, 150.0),
-    (4, "White Grouper",   4_000,  50.0, 2_000.0),
-    (4, "Silver Beltfish", 2_500,  30.0, 250.0),
-    (4, "Albino Coeacanth",2_800,  30.0, 250.0),
-    (4, "Yellow Corvina",    800,  0.5,   5.0),
-    (4, "Golden Sea Bass", 2_400,  1.0,  10.0),
-    (4, "Golden Albacore", 6_400,  1.0,  10.0),
+    (3, "Tuna",                   350,  20.0, 300.0),
+    (3, "Tilefish",               280,   1.0,  10.0),
+    (3, "Greater Amberjack",      400,   5.0,  70.0),
+    (3, "Goliath Grouper",        450,  50.0, 360.0),
+    (3, "Skate",                  220,   1.0,  25.0),
+    (3, "Giant Talking Catfish",  128,   3.0,  20.0),
+    # Ultra Rare (tier 4) — 1,000–8,000 boops
+    (4, "Blue Bat Star",    1_600,  0.02,   0.2),
+    (4, "Footballfish",     8_000,  1.0,    6.0),
+    (4, "White Grouper",    4_000,  3.0,   25.0),
+    (4, "Silver Beltfish",  2_500,  0.5,    4.0),
+    (4, "Albino Coelacanth",2_800, 15.0,   80.0),
+    (4, "Yellow Corvina",     800,  0.5,    6.0),
+    (4, "Golden Sea Bass",  2_400,  1.0,   12.0),
+    (4, "Golden Albacore",  6_400,  8.0,   40.0),
     # Legendary (tier 5) — 20,000+ boops, requires GS 10+
-    (5, "Polka-dot Stingray",18_400,  5.0,  30.0),
-    (5, "Pink Dolphin", 1_000_000,  3.0,  20.0),
-    (5, "Rainbowfish",     95_000,  0.1,   1.5),
-    (5, "Blue Angel",      75_000, 50.0, 300.0),
-    (5, "Flapjack Octopus",99_000, 10.0,  80.0),
-    (5, "Migaloo",         92_000, 10.0,  80.0),
-    (5, "Ghostfish",       80_000, 10.0,  80.0),
-    (5, "Manta Ray",       88_000, 10.0,  80.0),
-    (5, "Betta",           90_000, 10.0,  80.0),
-    (5, "Barreleye",       86_000, 10.0,  80.0),
-    (5, "Blobfish",        85_000, 10.0,  80.0),
-    (5, "Blue Lobster",    83_000, 10.0,  80.0),
-    (5, "Koi",             75_000, 10.0,  80.0),
-    (5, "Tripod Fish",     72_000, 10.0,  80.0),
-    (5, "Dorado",          58_000, 10.0,  80.0),
+    (5, "Polka-dot Stingray", 18_400,   5.0,  120.0),
+    (5, "Pink Dolphin",    1_000_000,  50.0,  160.0),
+    (5, "Rainbowfish",        95_000,   0.05,   0.5),
+    (5, "Blue Angel",         75_000,   0.1,    2.0),
+    (5, "Flapjack Octopus",   99_000,   0.3,    5.0),
+    (5, "Migaloo",            92_000, 200.0, 3000.0),
+    (5, "Ghostfish",          80_000,   0.5,    8.0),
+    (5, "Manta Ray",          88_000,  80.0, 1500.0),
+    (5, "Betta",              90_000,   0.005,  0.05),
+    (5, "Barreleye",          86_000,   0.05,   0.4),
+    (5, "Blobfish",           85_000,   1.0,    5.0),
+    (5, "Blue Lobster",       83_000,   0.3,    4.0),
+    (5, "Koi",                75_000,   2.0,   20.0),
+    (5, "Tripod Fish",        72_000,   0.2,    2.0),
+    (5, "Dorado",             58_000,   5.0,   40.0),
 ]
 
 # fish_name → tier lookup for display coloring
@@ -139,6 +139,18 @@ def _roll_fish(gear_score):
     size_kg = round(random.uniform(fish[3], fish[4]), 1)
     return fish[1], fish[2], tier, size_kg
 
+def _fmt_size(size_kg: float) -> str:
+    """Display size in grams if under 1 kg, otherwise kg, both at 2 decimal places."""
+    if size_kg < 1.0:
+        return f"{size_kg * 1000:.2f} g"
+    return f"{size_kg:.2f} kg"
+
+def _fmt_range(min_kg: float, max_kg: float) -> str:
+    """Display a size range, using grams if the whole range is under 1 kg."""
+    if max_kg < 1.0:
+        return f"{min_kg * 1000:.2f}–{max_kg * 1000:.2f} g"
+    return f"{min_kg}–{max_kg} kg"
+
 _MYSTICAL_MAX       = 5
 _MYSTICAL_CHANCE    = 0.001   # 0.1% per cast at GS 20
 _ANSI_MYSTICAL      = "\u001b[1;36m"  # bold cyan
@@ -182,7 +194,7 @@ def _build_leaderboard_pages(rows) -> list[str]:
             color = _FISH_TIER_ANSI[tier]
             lines.append(f"{color}{_FISH_TIER_EMOJI[tier]} {fish_name}{_ANSI_RESET}")
             for j, entry in enumerate(entries, 1):
-                lines.append(f"  {j}. {entry['name']:<16} {entry['record_kg']:.1f} kg")
+                lines.append(f"  {j}. {entry['name']:<16} {_fmt_size(entry['record_kg'])}")
             lines.append("")
         content = (
             f"🏆 **Best Fishers** — Page {p}/{total_pages}\n"
@@ -190,6 +202,70 @@ def _build_leaderboard_pages(rows) -> list[str]:
         )
         pages.append(content)
     return pages
+
+
+_TIER_COLORS = [0x808080, 0x2ecc71, 0x3498db, 0x9b59b6, 0xe74c3c, 0xffd700]
+
+def _build_fish_guide_pages() -> list[discord.Embed]:
+    tier_config = [
+        (0, "Junk"),
+        (1, "Common"),
+        (2, "Uncommon"),
+        (3, "Rare"),
+        (4, "Ultra Rare"),
+        (5, "Legendary"),
+    ]
+    pages = []
+    for tier_num, tier_name in tier_config:
+        fish_list = [f for f in FISH_LOOT if f[0] == tier_num]
+        emoji     = _FISH_TIER_EMOJI[tier_num]
+        lines     = []
+        for _, name, value, min_kg, max_kg in fish_list:
+            if tier_num == 0:
+                lines.append(f"**{name}**")
+            else:
+                lines.append(f"**{name}** · {value:,} boops · {_fmt_range(min_kg, max_kg)}")
+        embed = discord.Embed(
+            title=f"{emoji} {tier_name} Fish",
+            description="\n".join(lines),
+            color=_TIER_COLORS[tier_num],
+        )
+        pages.append(embed)
+    return pages
+
+
+class FishGuideView(discord.ui.View):
+    def __init__(self, pages: list[discord.Embed], author_id: int):
+        super().__init__(timeout=60)
+        self.pages     = pages
+        self.page      = 0
+        self.author_id = author_id
+        self._update_footer()
+        self._sync_buttons()
+
+    def _update_footer(self):
+        self.pages[self.page].set_footer(text=f"Page {self.page + 1} of {len(self.pages)}")
+
+    def _sync_buttons(self):
+        self.prev_btn.disabled = self.page == 0
+        self.next_btn.disabled = self.page == len(self.pages) - 1
+
+    async def _go(self, interaction: discord.Interaction, delta: int):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("Not your guide!", ephemeral=True)
+            return
+        self.page += delta
+        self._update_footer()
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self.pages[self.page], view=self)
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.gray)
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._go(interaction, -1)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.gray)
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._go(interaction, +1)
 
 
 class BestFishersView(discord.ui.View):
@@ -311,7 +387,8 @@ class FishingCog(commands.Cog, name="Fishing"):
             if tier > 0:
                 is_pb, _ = await utils.update_fish_record(discord_id, fish_name, size_kg)
 
-            line = f"{_FISH_TIER_EMOJI[tier]} {fish_name}  {size_kg:.1f} kg  +{value:,}"
+            size_part = f"  {_fmt_size(size_kg)}" if tier > 0 else ""
+        line      = f"{_FISH_TIER_EMOJI[tier]} {fish_name}{size_part}  +{value:,}"
             await self._update_log(ctx, line, new_bal, tier, is_pb)
             return
 
@@ -388,7 +465,8 @@ class FishingCog(commands.Cog, name="Fishing"):
         if tier > 0:
             is_pb, _ = await utils.update_fish_record(discord_id, fish_name, size_kg)
 
-        line = f"{_FISH_TIER_EMOJI[tier]} {fish_name}  {size_kg:.1f} kg  +{value:,}"
+        size_part = f"  {_fmt_size(size_kg)}" if tier > 0 else ""
+        line      = f"{_FISH_TIER_EMOJI[tier]} {fish_name}{size_part}  +{value:,}"
         await self._update_log(ctx, line, new_bal, tier, is_pb)
 
     @commands.command(name="shop")
@@ -541,6 +619,13 @@ class FishingCog(commands.Cog, name="Fishing"):
         )
         await ctx.send(embed=embed)
 
+    @commands.command(name="fishguide", aliases=["fishbook", "fishdex"])
+    async def fishguide(self, ctx):
+        """Browse all catchable fish by tier. Usage: !fishguide"""
+        pages = _build_fish_guide_pages()
+        view  = FishGuideView(pages, ctx.author.id)
+        await ctx.send(embed=pages[0], view=view)
+
     @commands.command(name="fishrecords", aliases=["fishpb"])
     async def fishrecords(self, ctx, member: discord.Member = None):
         """View personal fish weight records. Usage: !fishrecords [@user]"""
@@ -557,8 +642,9 @@ class FishingCog(commands.Cog, name="Fishing"):
             tier  = _FISH_TIER_MAP.get(row["fish_name"], 1)
             color = _FISH_TIER_ANSI[tier]
             count = row["catch_count"]
+            size_str = _fmt_size(row["record_kg"])
             lines.append(
-                f"{color}{_FISH_TIER_EMOJI[tier]} {row['fish_name']:<22} {row['record_kg']:>7.1f} kg"
+                f"{color}{_FISH_TIER_EMOJI[tier]} {row['fish_name']:<22} {size_str:>12}"
                 f"  ×{count}{_ANSI_RESET}"
             )
 
