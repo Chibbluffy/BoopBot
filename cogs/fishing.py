@@ -163,26 +163,40 @@ def _gear_score(rod_id, float_id, bait_id):
         SHOP_ITEMS.get(bait_id,  {}).get("tier", 0)
     )
 
+# Drop weight table — (junk, common, uncommon, rare, ultra rare, legendary)
+# Values are relative weights; they don't need to sum to 100 but are kept at 100
+# for readability so you can read them directly as percentages. Max GS = 20.
+_DROP_WEIGHTS = {
+#   GS: ( jnk, com, unc, rar, ult, leg)
+     0:  ( 50,  40,   7,   2,   1,   0),
+     1:  ( 45,  35,  15,   3,   2,   0),
+     2:  ( 40,  35,  17,   5,   3,   0),
+     3:  ( 35,  30,  19,  12,   4,   0),
+     4:  ( 30,  30,  20,  15,   5,   0),
+     5:  ( 30,  25,  23,  15,   7,   0),
+     6:  ( 30,  23,  23,  15,   9,   0),
+     7:  ( 25,  21,  25,  19,  10,   0),
+     8:  ( 20,  20,  30,  20,  10,   0),
+     9:  ( 15,  20,  30,  25,  10,   0),
+    10:  ( 10,  20,  29,  30,  10,   1),
+    11:  (  9,  20,  29,  31,  10,   1),
+    12:  (  8,  15,  28,  32,  15,   2),
+    13:  (  7,  15,  27,  33,  15,   3),
+    14:  (  6,  10,  26,  33,  21,   4),
+    15:  (  5,  10,  25,  33,  22,   5),
+    16:  (  4,  10,  24,  33,  23,   6),
+    17:  (  3,  10,  23,  32,  25,   7),
+    18:  (  2,  10,  22,  29,  29,   8),
+    19:  (  1,  10,  21,  30,  29,   9),
+    20:  (  1,  10,  20,  29,  30,  10),
+}
+
 def _roll_fish(gear_score):
-    # Max gear_score = rod 7 + float 7 + bait 6 = 20.
-    # Exponential curves so early GS upgrades feel impactful.
-    gs = gear_score
-    base_weights = [
-        max(1,  40 * (0.75 ** gs)),         # junk:      40→1  (halves every ~2.4 GS)
-        max(3,  35 * (0.88 ** gs)),         # common:    35→3  (slower decay)
-        max(8,  17 + gs*2 - gs*gs*0.3),     # uncommon:  peaks ~GS3, floors at 8
-        min(60,  6 * (1.38 ** gs)),         # rare:       6→60 (caps around GS8)
-        min(28,  2 * (1.40 ** gs)),         # ultra rare: 2→28 (caps around GS9)
-    ]
-    # Legendary locked until GS 10; exactly 1/2/3/4/5% at GS 10/12/14/16/18+
-    target_leg_pct = min(5.0, max(0.0, (gs - 8) * 0.5))
-    other_sum      = sum(base_weights)
-    legendary_w    = (target_leg_pct / (100.0 - target_leg_pct)) * other_sum
-    weights        = base_weights + [legendary_w]
-    tier           = random.choices([0, 1, 2, 3, 4, 5], weights=weights, k=1)[0]
-    pool = [f for f in FISH_LOOT if f[0] == tier]
-    fish = random.choice(pool)
-    # fish = (tier, name, value, min_kg, max_kg)
+    gs      = min(max(gear_score, 0), 20)
+    weights = _DROP_WEIGHTS[gs]
+    tier    = random.choices([0, 1, 2, 3, 4, 5], weights=weights, k=1)[0]
+    pool    = [f for f in FISH_LOOT if f[0] == tier]
+    fish    = random.choice(pool)
     size_kg = round(random.uniform(fish[3], fish[4]), 1)
     return fish[1], fish[2], tier, size_kg
 
@@ -519,7 +533,9 @@ class FishingCog(commands.Cog, name="Fishing"):
     @commands.command(name="shop")
     async def shop(self, ctx):
         """Browse the fishing shop."""
-        embed = discord.Embed(title="🏪 Fishing Shop", color=discord.Color.blurple())
+        profile = await utils.get_fishing_profile(str(ctx.author.id))
+        gs      = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
+        embed   = discord.Embed(title="🏪 Fishing Shop", description=f"⚙️ Your Fishing GS: **{gs}**", color=discord.Color.blurple())
         for category, label in [("rod", "🎣 Rods"), ("float", "🪝 Floats"), ("bait", "🪱 Bait")]:
             lines = []
             for item_id, item in SHOP_ITEMS.items():
@@ -634,10 +650,12 @@ class FishingCog(commands.Cog, name="Fishing"):
             if iid == "rod_starter": return "Starter Rod"
             return SHOP_ITEMS.get(iid, {}).get("name", iid) if iid else "None"
 
+        gs = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
         lines = [
             f"🎣 **Rod:**   {item_name(profile['active_rod'])}",
             f"🪝 **Float:** {item_name(profile['active_float']) if profile['active_float'] else 'None'}",
             f"🪱 **Bait:**  {item_name(profile['active_bait'])  if profile['active_bait']  else 'None'}",
+            f"⚙️ **Fishing GS:** {gs}",
             "", "**Owned:**",
         ]
         equipped  = {profile["active_rod"], profile["active_float"], profile["active_bait"]}
@@ -672,6 +690,22 @@ class FishingCog(commands.Cog, name="Fishing"):
         pages = _build_fish_guide_pages()
         view  = FishGuideView(pages, ctx.author.id)
         await ctx.send(embed=pages[0], view=view)
+
+    @commands.command(name="fishrates", aliases=["fishchances", "droprates"])
+    async def fishrates(self, ctx):
+        """Show fishing drop rates by gear score. Usage: !fishrates"""
+        header = f"{'GS':>3}  {'Junk':>5}  {'Comm':>5}  {'Unco':>5}  {'Rare':>5}  {'Ultra':>5}  {'Leg':>4}"
+        lines  = [header, "─" * 44]
+        for gs, w in _DROP_WEIGHTS.items():
+            lines.append(f"{gs:>3}  {w[0]:>4}%  {w[1]:>4}%  {w[2]:>4}%  {w[3]:>4}%  {w[4]:>4}%  {w[5]:>3}%")
+
+        embed = discord.Embed(
+            title="📊 Fishing Drop Rates by GS",
+            description=f"```\n{chr(10).join(lines)}\n```",
+            color=discord.Color.blurple()
+        )
+        embed.set_footer(text="GS = Rod tier + Float tier + Bait tier  ·  Max GS = 20")
+        await ctx.send(embed=embed)
 
     @commands.command(name="fishrecords", aliases=["fishpb"])
     async def fishrecords(self, ctx, member: discord.Member = None):
