@@ -678,12 +678,6 @@ class FishingCog(commands.Cog, name="Fishing"):
                 PRIMARY KEY (discord_id, fish_name)
             )
         """)
-        await utils.pool.execute(
-            "ALTER TABLE fish_records ADD COLUMN IF NOT EXISTS catch_count INTEGER NOT NULL DEFAULT 0"
-        )
-        await utils.pool.execute(
-            "ALTER TABLE fishing_profile ADD COLUMN IF NOT EXISTS mystical_active INTEGER NOT NULL DEFAULT 0"
-        )
 
 
 async def setup(bot):
