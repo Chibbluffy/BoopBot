@@ -454,12 +454,35 @@ class FishingCog(commands.Cog, name="Fishing"):
             return
 
         # ── Normal fishing flow ────────────────────────────────────────────────
-        embed    = discord.Embed(description="🎣 Casting your line...", color=0x1e90ff)
+        inv   = await utils.get_inventory(discord_id)
+        score = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
+
+        def _iname(iid):
+            if iid == "rod_starter": return "Starter Rod"
+            return SHOP_ITEMS.get(iid, {}).get("name", iid) if iid else None
+
+        rod_name   = _iname(profile["active_rod"])
+        float_name = _iname(profile["active_float"])
+        bait_id    = profile.get("active_bait")
+        bait_name  = _iname(bait_id)
+        bait_count = inv.get(bait_id, 0) if bait_id else None
+
+        gear_line  = f"🎣 {rod_name}"
+        if float_name:
+            gear_line += f"  ·  🪝 {float_name}"
+        if bait_name:
+            bait_warn  = " ⚠️" if bait_count is not None and bait_count <= 5 else ""
+            gear_line += f"  ·  🪱 {bait_name} ×{bait_count}{bait_warn}"
+        else:
+            gear_line += "  ·  🪱 No bait"
+
+        embed    = discord.Embed(
+            description=f"🎣 Casting your line...\n\n{gear_line}\n⚙️ Fishing GS: **{score}**",
+            color=0x1e90ff
+        )
         cast_msg = await ctx.send(embed=embed)
 
         await asyncio.sleep(random.uniform(2, 5))
-
-        score = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
 
         # Mystical fish check — GS 20 only, 0.1% chance
         if score >= 10 and random.random() < _MYSTICAL_CHANCE:
