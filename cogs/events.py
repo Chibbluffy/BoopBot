@@ -10,10 +10,10 @@ _ALL_CLASSES = sorted([
     "Wizard", "Witch", "Dark Knight", "Striker", "Mystic",
     "Lahn", "Archer", "Shai", "Guardian", "Hashashin",
     "Nova", "Sage", "Corsair", "Drakania", "Woosa",
-    "Maegu", "Scholar", "Dosa", "Deadeye", "Legionary", "Spiritborn",
+    "Maegu", "Scholar", "Dosa", "Deadeye",
 ])
-BDO_CLASSES_1 = _ALL_CLASSES[:25]
-BDO_CLASSES_2 = _ALL_CLASSES[25:]
+BDO_CLASSES_1 = _ALL_CLASSES[:25]   # Archer – Valkyrie
+BDO_CLASSES_2 = _ALL_CLASSES[25:]   # Warrior – Woosa
 
 STATUS_COLORS = {
     "active":    discord.Color.blurple(),
@@ -158,7 +158,7 @@ class ClassSelectMenu1(discord.ui.Select):
         self.role_id   = role_id
         self.role_name = role_name
         options = [discord.SelectOption(label=c, value=c) for c in BDO_CLASSES_1]
-        super().__init__(placeholder="Select class (1/2)…", options=options, custom_id=f"cls1:{event_id}:{role_id}")
+        super().__init__(placeholder="Classes A–V…", options=options, custom_id=f"cls1:{event_id}:{role_id}")
 
     async def callback(self, interaction: discord.Interaction):
         await _finish_signup(interaction, self.event_id, self.role_id, self.role_name, self.values[0])
@@ -170,7 +170,7 @@ class ClassSelectMenu2(discord.ui.Select):
         self.role_id   = role_id
         self.role_name = role_name
         options = [discord.SelectOption(label=c, value=c) for c in BDO_CLASSES_2]
-        super().__init__(placeholder="Select class (2/2)…", options=options, custom_id=f"cls2:{event_id}:{role_id}")
+        super().__init__(placeholder="Classes W…", options=options, custom_id=f"cls2:{event_id}:{role_id}")
 
     async def callback(self, interaction: discord.Interaction):
         await _finish_signup(interaction, self.event_id, self.role_id, self.role_name, self.values[0])
