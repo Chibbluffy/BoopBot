@@ -458,6 +458,35 @@ class EventsCog(commands.Cog, name="Events"):
 
     async def cog_load(self):
         self.bot.loop.create_task(self._start_listener())
+        self.bot.loop.create_task(self._restore_views())
+
+    async def _restore_views(self):
+        """Re-register persistent views for all active events so buttons work after restart."""
+        await self.bot.wait_until_ready()
+        import json as _json
+        rows = await utils.pool.fetch("""
+            SELECT e.id, e.message_id,
+                json_agg(
+                    json_build_object('id', er.id, 'name', er.name, 'emoji', er.emoji,
+                                      'soft_cap', er.soft_cap, 'display_order', er.display_order)
+                    ORDER BY er.display_order
+                ) FILTER (WHERE er.id IS NOT NULL) AS roles
+            FROM events e
+            LEFT JOIN event_roles er ON er.event_id = e.id
+            WHERE e.status = 'active' AND e.message_id IS NOT NULL
+            GROUP BY e.id
+        """)
+        count = 0
+        for row in rows:
+            event_id   = str(row["id"])
+            message_id = int(row["message_id"])
+            roles_raw  = row["roles"] or []
+            if isinstance(roles_raw, str):
+                roles_raw = _json.loads(roles_raw)
+            roles = [r for r in roles_raw if r]
+            self.bot.add_view(EventSignupView(event_id, roles), message_id=message_id)
+            count += 1
+        print(f"[events] restored {count} persistent view(s)")
 
     # ── Calendar reminder loop (unchanged) ────────────────────────────────────
 
