@@ -61,24 +61,44 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
         color=color,
     )
 
+    # ── Compute Unix timestamp once ───────────────────────────────────────────
+    ts = None
     if event.get("event_date") and event.get("event_time"):
         try:
-            tz_str  = event.get("event_timezone") or "UTC"
-            date_s  = str(event["event_date"])[:10]
-            time_s  = str(event["event_time"])[:5]
+            tz_str   = event.get("event_timezone") or "UTC"
+            date_s   = str(event["event_date"])[:10]
+            time_s   = str(event["event_time"])[:5]
             dt_naive = datetime.strptime(f"{date_s} {time_s}", "%Y-%m-%d %H:%M")
-            dt = dt_naive.replace(tzinfo=ZoneInfo(tz_str))
-            embed.add_field(name="📅 Time", value=f"<t:{int(dt.timestamp())}:F>", inline=True)
+            ts       = int(dt_naive.replace(tzinfo=ZoneInfo(tz_str)).timestamp())
         except Exception as e:
             print(f"[events] timestamp error: {e}")
 
+    # ── Header: 3-column layout ───────────────────────────────────────────────
     accepted = [s for s in signups if s["status"] == "accepted"]
-    embed.add_field(name="👥 Signed up", value=str(len(accepted)), inline=True)
+    bench    = [s for s in signups if s["status"] == "bench"]
 
+    signup_str = str(len(accepted))
+    if event.get("total_cap"):
+        signup_str += f"/{event['total_cap']}"
+    if bench:
+        signup_str += f" (+{len(bench)})"
+
+    leader       = event.get("created_by_name") or "—"
+    date_val     = f"<t:{ts}:D>" if ts else "—"
+    time_val     = f"<t:{ts}:t>" if ts else "—"
+    countdown    = f"<t:{ts}:R>" if ts else "—"
+
+    embed.add_field(name="👑 Leader",    value=f"{leader}\n📅 {date_val}",   inline=True)
+    embed.add_field(name="📋 Sign Ups",  value=f"{signup_str}\n⏰ {time_val}", inline=True)
+    embed.add_field(name="⏱️ Countdown", value=countdown,                     inline=True)
+
+    # ── Role sections ─────────────────────────────────────────────────────────
     by_role: dict[str, list] = {}
     for s in signups:
         rid = str(s.get("role_id") or "")
         by_role.setdefault(rid, []).append(s)
+
+    role_ids = {str(r["id"]) for r in roles}
 
     for role in roles:
         rid   = str(role["id"])
@@ -86,21 +106,45 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
         cap   = role.get("soft_cap")
         emoji = class_emojis.get(role["name"], "") or role.get("emoji") or ""
 
-        names = []
-        for s in slots:
-            cls_emoji = class_emojis.get(s.get("bdo_class") or "", "")
-            names.append(f"{cls_emoji} {s['discord_name']}" if cls_emoji else s["discord_name"])
-
         header = f"{emoji} {role['name']}" if emoji else role["name"]
         header += f" ({len(slots)}/{cap})" if cap else f" ({len(slots)})"
-        embed.add_field(name=header, value="\n".join(names) or "*empty*", inline=False)
 
-    for label, status_key, icon in [("Bench", "bench", "🪑"), ("Tentative", "tentative", "❓"), ("Absent", "absent", "🚫")]:
+        lines = []
+        for s in slots:
+            cls_emoji = class_emojis.get(s.get("bdo_class") or "", "")
+            lines.append(
+                f"{cls_emoji} {s['signup_order']} {s['discord_name']}"
+                if cls_emoji else f"{s['signup_order']} {s['discord_name']}"
+            )
+
+        embed.add_field(name=header, value="\n".join(lines) or "*empty*", inline=False)
+
+    # No-role accepted signups
+    no_role = [s for s in accepted if str(s.get("role_id") or "") not in role_ids]
+    if no_role:
+        lines = []
+        for s in no_role:
+            cls_emoji = class_emojis.get(s.get("bdo_class") or "", "")
+            lines.append(
+                f"{cls_emoji} {s['signup_order']} {s['discord_name']}"
+                if cls_emoji else f"{s['signup_order']} {s['discord_name']}"
+            )
+        embed.add_field(name=f"📌 No Role ({len(no_role)})", value="\n".join(lines), inline=False)
+
+    # ── Tentative / Absent ────────────────────────────────────────────────────
+    for label, status_key, icon in [("Tentative", "tentative", "❓"), ("Absent", "absent", "🚫")]:
         members = [s for s in signups if s["status"] == status_key]
         if members:
+            parts = []
+            for s in members:
+                cls_emoji = class_emojis.get(s.get("bdo_class") or "", "")
+                parts.append(
+                    f"{cls_emoji} {s['signup_order']} {s['discord_name']}"
+                    if cls_emoji else f"{s['signup_order']} {s['discord_name']}"
+                )
             embed.add_field(
                 name=f"{icon} {label} ({len(members)})",
-                value=", ".join(s["discord_name"] for s in members),
+                value=" · ".join(parts),
                 inline=False,
             )
 
