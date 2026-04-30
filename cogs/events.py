@@ -140,8 +140,8 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
     # Spacing separator before tentative/absent
     embed.add_field(name="\u200b", value="─────────────────────", inline=False)
 
-    # ── Tentative / Absent ────────────────────────────────────────────────────
-    for label, status_key, icon in [("Tentative", "tentative", "❓"), ("Absent", "absent", "🚫")]:
+    # ── Bench / Tentative / Absent ────────────────────────────────────────────
+    for label, status_key, icon in [("Bench", "bench", "🪑"), ("Tentative", "tentative", "❓"), ("Absent", "absent", "🚫")]:
         members = [s for s in signups if s["status"] == status_key]
         if members:
             parts = []
