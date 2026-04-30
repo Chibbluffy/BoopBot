@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands, tasks
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+import asyncpg, os
 import utils
 
 _ALL_CLASSES = sorted([
@@ -91,6 +92,9 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
     embed.add_field(name="⏱️ Countdown", value=countdown,                                      inline=True)
     embed.add_field(name="\u200b",       value="\u200b",                                        inline=True)  # fill row so roles start fresh
 
+    # Spacing separator before roles
+    embed.add_field(name="\u200b", value="─────────────────────", inline=False)
+
     # ── Role sections (2-column) ──────────────────────────────────────────────
     by_role: dict[str, list] = {}
     for s in signups:
@@ -132,6 +136,9 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
                 if cls_emoji else f"{s['signup_order']} {s['discord_name']}"
             )
         embed.add_field(name=f"📌 No Role ({len(no_role)})", value="\n".join(lines), inline=True)
+
+    # Spacing separator before tentative/absent
+    embed.add_field(name="\u200b", value="─────────────────────", inline=False)
 
     # ── Tentative / Absent ────────────────────────────────────────────────────
     for label, status_key, icon in [("Tentative", "tentative", "❓"), ("Absent", "absent", "🚫")]:
@@ -194,6 +201,28 @@ async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
             event_id, discord_id, discord_name, role_id, role_name, bdo_class, row["next_order"], status,
         )
     await utils.pool.execute("UPDATE events SET updated_at = NOW() WHERE id = $1", event_id)
+
+
+async def _is_event_open(event_id: str) -> tuple[bool, str]:
+    """Returns (open, reason). open=False means signups should be rejected."""
+    event = await fetch_event(event_id)
+    if not event:
+        return False, "Event not found."
+    if event.get("status") != "active":
+        return False, "Signups are closed for this event."
+    # Check if the event datetime has passed
+    if event.get("event_date") and event.get("event_time"):
+        try:
+            tz_str   = event.get("event_timezone") or "UTC"
+            date_s   = str(event["event_date"])[:10]
+            time_s   = str(event["event_time"])[:5]
+            dt_naive = datetime.strptime(f"{date_s} {time_s}", "%Y-%m-%d %H:%M")
+            dt_aware = dt_naive.replace(tzinfo=ZoneInfo(tz_str))
+            if dt_aware < datetime.now(timezone.utc):
+                return False, "This event has already passed — signups are closed."
+        except Exception:
+            pass
+    return True, ""
 
 
 # ── Class selection views ──────────────────────────────────────────────────────
@@ -314,8 +343,30 @@ class EventSignupView(discord.ui.View):
         withdraw_btn.callback = self._withdraw_cb
         self.add_item(withdraw_btn)
 
+        close_btn = discord.ui.Button(
+            label="Close Signups", style=discord.ButtonStyle.secondary,
+            custom_id=f"close_signups:{event_id}", emoji="🔒",
+        )
+        close_btn.callback = self._close_signups_cb
+        self.add_item(close_btn)
+
     def _make_signup_cb(self, role_id, role_name: str):
         async def callback(interaction: discord.Interaction):
+            open_, reason = await _is_event_open(self.event_id)
+            if not open_:
+                await interaction.response.send_message(f"🔒 {reason}", ephemeral=True)
+                return
+
+            # Validate role still exists
+            role_row = await utils.pool.fetchrow(
+                "SELECT id FROM event_roles WHERE id = $1", role_id
+            )
+            if not role_row:
+                await interaction.response.send_message(
+                    "⚠️ That role no longer exists. The event may have been updated.", ephemeral=True
+                )
+                return
+
             row = await utils.pool.fetchrow(
                 "SELECT bdo_class, alt_class FROM users WHERE discord_id = $1",
                 str(interaction.user.id),
@@ -341,6 +392,10 @@ class EventSignupView(discord.ui.View):
     def _make_status_cb(self, status: str):
         async def callback(interaction: discord.Interaction):
             await interaction.response.defer(ephemeral=True)
+            open_, reason = await _is_event_open(self.event_id)
+            if not open_:
+                await interaction.followup.send(f"🔒 {reason}", ephemeral=True)
+                return
             try:
                 await _upsert_signup(
                     self.event_id, str(interaction.user.id), interaction.user.display_name,
@@ -354,6 +409,10 @@ class EventSignupView(discord.ui.View):
 
     async def _withdraw_cb(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
+        open_, reason = await _is_event_open(self.event_id)
+        if not open_:
+            await interaction.followup.send(f"🔒 {reason}", ephemeral=True)
+            return
         try:
             await utils.pool.execute(
                 "DELETE FROM event_signups WHERE event_id = $1 AND discord_id = $2",
@@ -365,6 +424,21 @@ class EventSignupView(discord.ui.View):
         except Exception as e:
             await interaction.followup.send(f"Something went wrong: {e}", ephemeral=True)
 
+    async def _close_signups_cb(self, interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.manage_events:
+            await interaction.response.send_message("❌ You don't have permission to close signups.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await utils.pool.execute(
+                "UPDATE events SET status = 'closed', updated_at = NOW() WHERE id = $1",
+                self.event_id,
+            )
+            await interaction.followup.send("🔒 Signups have been closed.", ephemeral=True)
+            await _refresh_embed(interaction.message, self.event_id)
+        except Exception as e:
+            await interaction.followup.send(f"Something went wrong: {e}", ephemeral=True)
+
 
 # ── Cog ────────────────────────────────────────────────────────────────────────
 
@@ -372,12 +446,18 @@ class EventsCog(commands.Cog, name="Events"):
 
     def __init__(self, bot):
         self.bot = bot
+        self._listen_conn: asyncpg.Connection | None = None
         self.event_reminder.start()
-        self.signup_embed_poller.start()
+        self.new_embed_poller.start()
 
     def cog_unload(self):
         self.event_reminder.cancel()
-        self.signup_embed_poller.cancel()
+        self.new_embed_poller.cancel()
+        if self._listen_conn:
+            self.bot.loop.create_task(self._listen_conn.close())
+
+    async def cog_load(self):
+        self.bot.loop.create_task(self._start_listener())
 
     # ── Calendar reminder loop (unchanged) ────────────────────────────────────
 
@@ -439,12 +519,52 @@ class EventsCog(commands.Cog, name="Events"):
     async def before_event_reminder(self):
         await self.bot.wait_until_ready()
 
-    # ── Signup embed poller ───────────────────────────────────────────────────
+    # ── LISTEN/NOTIFY handler ─────────────────────────────────────────────────
 
-    @tasks.loop(seconds=30)
-    async def signup_embed_poller(self):
+    async def _start_listener(self):
+        await self.bot.wait_until_ready()
+        while True:
+            try:
+                self._listen_conn = await asyncpg.connect(os.getenv("DATABASE_URL"))
+                await self._listen_conn.add_listener("event_updated", self._on_event_notify)
+                print("[events] LISTEN connection established")
+                # Keep connection alive; it fires callbacks until closed
+                await self._listen_conn.wait_closed()
+            except Exception as e:
+                print(f"[events] LISTEN connection lost: {e} — reconnecting in 5s")
+                import asyncio
+                await asyncio.sleep(5)
+
+    async def _on_event_notify(self, conn, pid, channel, event_id: str):
         try:
-            pending = await utils.pool.fetch("""
+            event = await fetch_event(event_id)
+            if not event:
+                return
+            roles   = await fetch_roles(event_id)
+            signups = await fetch_signups(event_id)
+            emojis  = await fetch_class_emojis()
+
+            if not event.get("message_id"):
+                # Not yet posted — post it now
+                await self._post_signup_embed(event)
+                return
+
+            channel_obj = self.bot.get_channel(int(event["channel_id"]))
+            if channel_obj is None:
+                channel_obj = await self.bot.fetch_channel(int(event["channel_id"]))
+            msg = await channel_obj.fetch_message(int(event["message_id"]))
+
+            embed = await build_event_embed(event, roles, signups, emojis)
+            await msg.edit(embed=embed)
+        except Exception as e:
+            print(f"[events] notify handler error for {event_id}: {e}")
+
+    # ── New-embed poller (fallback for events without a message yet) ──────────
+
+    @tasks.loop(minutes=1)
+    async def new_embed_poller(self):
+        try:
+            rows = await utils.pool.fetch("""
                 SELECT e.*, json_agg(
                     json_build_object(
                         'id', er.id, 'name', er.name, 'emoji', er.emoji,
@@ -456,13 +576,13 @@ class EventsCog(commands.Cog, name="Events"):
                 WHERE e.status = 'active' AND e.message_id IS NULL AND e.channel_id IS NOT NULL
                 GROUP BY e.id
             """)
-            for row in pending:
+            for row in rows:
                 await self._post_signup_embed(dict(row))
         except Exception as e:
-            print(f"[events] poller error: {e}")
+            print(f"[events] new-embed poller error: {e}")
 
-    @signup_embed_poller.before_loop
-    async def before_signup_poller(self):
+    @new_embed_poller.before_loop
+    async def before_new_embed_poller(self):
         await self.bot.wait_until_ready()
 
     async def _post_signup_embed(self, event: dict):
