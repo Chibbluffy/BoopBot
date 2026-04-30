@@ -73,7 +73,7 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
         except Exception as e:
             print(f"[events] timestamp error: {e}")
 
-    # ── Header: 3-column layout ───────────────────────────────────────────────
+    # ── Header: 2-column layout ───────────────────────────────────────────────
     accepted = [s for s in signups if s["status"] == "accepted"]
     bench    = [s for s in signups if s["status"] == "bench"]
 
@@ -83,16 +83,14 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
     if bench:
         signup_str += f" (+{len(bench)})"
 
-    leader       = event.get("created_by_name") or "—"
-    date_val     = f"<t:{ts}:D>" if ts else "—"
-    time_val     = f"<t:{ts}:t>" if ts else "—"
-    countdown    = f"<t:{ts}:R>" if ts else "—"
+    date_val  = f"<t:{ts}:D>" if ts else "—"
+    time_val  = f"<t:{ts}:t>" if ts else "—"
+    countdown = f"<t:{ts}:R>" if ts else "—"
 
-    embed.add_field(name="👑 Leader",    value=f"{leader}\n📅 {date_val}",   inline=True)
-    embed.add_field(name="📋 Sign Ups",  value=f"{signup_str}\n⏰ {time_val}", inline=True)
-    embed.add_field(name="⏱️ Countdown", value=countdown,                     inline=True)
+    embed.add_field(name="📋 Sign Ups",  value=f"{signup_str}\n⏰ {time_val}\n📅 {date_val}", inline=True)
+    embed.add_field(name="⏱️ Countdown", value=countdown,                                      inline=True)
 
-    # ── Role sections ─────────────────────────────────────────────────────────
+    # ── Role sections (2-column) ──────────────────────────────────────────────
     by_role: dict[str, list] = {}
     for s in signups:
         rid = str(s.get("role_id") or "")
@@ -100,7 +98,7 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
 
     role_ids = {str(r["id"]) for r in roles}
 
-    for role in roles:
+    for i, role in enumerate(roles):
         rid   = str(role["id"])
         slots = [s for s in by_role.get(rid, []) if s["status"] == "accepted"]
         cap   = role.get("soft_cap")
@@ -117,7 +115,10 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
                 if cls_emoji else f"{s['signup_order']} {s['discord_name']}"
             )
 
-        embed.add_field(name=header, value="\n".join(lines) or "*empty*", inline=False)
+        embed.add_field(name=header, value="\n".join(lines) or "*empty*", inline=True)
+        # Insert blank spacer after every 2nd role to force a new row
+        if i % 2 == 1:
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
 
     # No-role accepted signups
     no_role = [s for s in accepted if str(s.get("role_id") or "") not in role_ids]
@@ -129,7 +130,7 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
                 f"{cls_emoji} {s['signup_order']} {s['discord_name']}"
                 if cls_emoji else f"{s['signup_order']} {s['discord_name']}"
             )
-        embed.add_field(name=f"📌 No Role ({len(no_role)})", value="\n".join(lines), inline=False)
+        embed.add_field(name=f"📌 No Role ({len(no_role)})", value="\n".join(lines), inline=True)
 
     # ── Tentative / Absent ────────────────────────────────────────────────────
     for label, status_key, icon in [("Tentative", "tentative", "❓"), ("Absent", "absent", "🚫")]:
@@ -221,10 +222,29 @@ class ClassSelectMenu2(discord.ui.Select):
 
 
 class ClassSelectView(discord.ui.View):
-    def __init__(self, event_id: str, role_id, role_name: str):
+    """Class selection with optional profile quick-pick buttons."""
+
+    def __init__(self, event_id: str, role_id, role_name: str, profile_classes: list[str] | None = None):
         super().__init__(timeout=120)
+
+        # Green quick-pick buttons for saved profile classes (up to 2)
+        for cls in (profile_classes or [])[:2]:
+            btn = discord.ui.Button(
+                label=cls,
+                style=discord.ButtonStyle.success,
+                custom_id=f"qpick:{event_id}:{role_id}:{cls}",
+            )
+            btn.callback = self._make_quick_cb(event_id, role_id, role_name, cls)
+            self.add_item(btn)
+
         self.add_item(ClassSelectMenu1(event_id, role_id, role_name))
         self.add_item(ClassSelectMenu2(event_id, role_id, role_name))
+
+    @staticmethod
+    def _make_quick_cb(event_id, role_id, role_name, bdo_class):
+        async def callback(interaction: discord.Interaction):
+            await _finish_signup(interaction, event_id, role_id, role_name, bdo_class)
+        return callback
 
 
 async def _finish_signup(interaction: discord.Interaction, event_id: str, role_id, role_name: str, bdo_class: str):
@@ -295,9 +315,24 @@ class EventSignupView(discord.ui.View):
 
     def _make_signup_cb(self, role_id, role_name: str):
         async def callback(interaction: discord.Interaction):
+            row = await utils.pool.fetchrow(
+                "SELECT bdo_class, alt_class FROM users WHERE discord_id = $1",
+                str(interaction.user.id),
+            )
+            profile_classes = []
+            if row:
+                if row["bdo_class"]:
+                    profile_classes.append(row["bdo_class"])
+                if row["alt_class"] and row["alt_class"] != row["bdo_class"]:
+                    profile_classes.append(row["alt_class"])
+
+            content = f"Choose your class for **{role_name}**:"
+            if profile_classes:
+                content += "\n\n**Quick pick** (from your profile) — or use the dropdowns below:"
+
             await interaction.response.send_message(
-                f"Choose your class for **{role_name}**:",
-                view=ClassSelectView(self.event_id, role_id, role_name),
+                content,
+                view=ClassSelectView(self.event_id, role_id, role_name, profile_classes),
                 ephemeral=True,
             )
         return callback
