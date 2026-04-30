@@ -74,6 +74,36 @@ class FunCog(commands.Cog, name="Fun"):
             self._8ball_cache[key] = (response, now + self._ttl)
         await ctx.send(f"🎱 {response}")
 
+    @commands.command(name="roll")
+    async def roll(self, ctx, maximum: int = 100):
+        """Roll a random number from 1 to N (default 100). Usage: !roll [max]"""
+        if maximum < 2:
+            await ctx.send("Give me a number greater than 1 to roll!")
+            return
+        result = random.randint(1, maximum)
+        if result == 1:
+            embed = discord.Embed(
+                title="🔴 CRITICAL FAIL",
+                description=f"# **{result:,}**",
+                color=discord.Color.red(),
+            )
+            embed.set_footer(text="F.")
+        elif result == maximum:
+            embed = discord.Embed(
+                title="🌟 CRITICAL SUCCESS",
+                description=f"# **{result:,}**",
+                color=discord.Color.gold(),
+            )
+            embed.set_footer(text="Insane.")
+        else:
+            embed = discord.Embed(
+                description=f"# **{result:,}**",
+                color=discord.Color.blurple(),
+            )
+        embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.display_avatar.url)
+        embed.add_field(name="Range", value=f"1 – {maximum:,}", inline=True)
+        await ctx.send(embed=embed)
+
     @commands.command()
     async def resetchat(self, ctx):
         """Cycles to the next AI model and resets the chat session."""
