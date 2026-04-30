@@ -3,15 +3,285 @@ from discord.ext import commands, tasks
 from datetime import datetime, timedelta, timezone
 import utils
 
+BDO_CLASSES_1 = [
+    "Warrior", "Sorceress", "Ranger", "Berserker", "Tamer",
+    "Musa", "Maehwa", "Valkyrie", "Kunoichi", "Ninja",
+    "Wizard", "Witch", "Dark Knight", "Striker", "Mystic",
+    "Lahn", "Archer", "Shai", "Guardian", "Hashashin",
+    "Nova", "Sage", "Corsair", "Drakania", "Woosa",
+]
+BDO_CLASSES_2 = [
+    "Maegu", "Scholar", "Dosa", "Deadeye", "Legionary", "Spiritborn",
+]
+
+STATUS_COLORS = {
+    "active":    discord.Color.blurple(),
+    "closed":    discord.Color.dark_grey(),
+    "cancelled": discord.Color.red(),
+}
+
+
+async def fetch_class_emojis() -> dict:
+    rows = await utils.pool.fetch("SELECT class_name, emoji_id, emoji_name, animated FROM class_emojis")
+    result = {}
+    for r in rows:
+        if r["emoji_id"] and r["emoji_name"]:
+            prefix = "a" if r["animated"] else ""
+            result[r["class_name"]] = f"<{prefix}:{r['emoji_name']}:{r['emoji_id']}>"
+        elif r["emoji_name"]:
+            result[r["class_name"]] = r["emoji_name"]
+    return result
+
+
+async def fetch_event(event_id: str) -> dict | None:
+    row = await utils.pool.fetchrow("SELECT * FROM events WHERE id = $1", event_id)
+    return dict(row) if row else None
+
+
+async def fetch_roles(event_id: str) -> list:
+    rows = await utils.pool.fetch(
+        "SELECT * FROM event_roles WHERE event_id = $1 ORDER BY display_order", event_id
+    )
+    return [dict(r) for r in rows]
+
+
+async def fetch_signups(event_id: str) -> list:
+    rows = await utils.pool.fetch(
+        "SELECT * FROM event_signups WHERE event_id = $1 ORDER BY signup_order", event_id
+    )
+    return [dict(r) for r in rows]
+
+
+async def build_event_embed(event: dict, roles: list, signups: list, class_emojis: dict) -> discord.Embed:
+    color = STATUS_COLORS.get(event.get("status", "active"), discord.Color.blurple())
+    embed = discord.Embed(
+        title=event["title"],
+        description=event.get("description") or "",
+        color=color,
+    )
+
+    if event.get("event_date") and event.get("event_time"):
+        try:
+            dt_str = f"{event['event_date']}T{str(event['event_time'])[:8]}+00:00"
+            dt = datetime.fromisoformat(dt_str)
+            embed.add_field(name="📅 Time", value=f"<t:{int(dt.timestamp())}:F>", inline=True)
+        except Exception:
+            pass
+
+    accepted = [s for s in signups if s["status"] == "accepted"]
+    embed.add_field(name="👥 Signed up", value=str(len(accepted)), inline=True)
+
+    by_role: dict[str, list] = {}
+    for s in signups:
+        rid = str(s.get("role_id") or "")
+        by_role.setdefault(rid, []).append(s)
+
+    for role in roles:
+        rid   = str(role["id"])
+        slots = [s for s in by_role.get(rid, []) if s["status"] == "accepted"]
+        cap   = role.get("soft_cap")
+        emoji = class_emojis.get(role["name"], "") or role.get("emoji") or ""
+
+        names = []
+        for s in slots:
+            cls_emoji = class_emojis.get(s.get("bdo_class") or "", "")
+            names.append(f"{cls_emoji} {s['discord_name']}" if cls_emoji else s["discord_name"])
+
+        header = f"{emoji} {role['name']}" if emoji else role["name"]
+        header += f" ({len(slots)}/{cap})" if cap else f" ({len(slots)})"
+        embed.add_field(name=header, value="\n".join(names) or "*empty*", inline=False)
+
+    for label, status_key, icon in [("Bench", "bench", "🪑"), ("Tentative", "tentative", "❓"), ("Absent", "absent", "🚫")]:
+        members = [s for s in signups if s["status"] == status_key]
+        if members:
+            embed.add_field(
+                name=f"{icon} {label} ({len(members)})",
+                value=", ".join(s["discord_name"] for s in members),
+                inline=False,
+            )
+
+    embed.set_footer(text=f"Event ID: {event['id']}")
+    return embed
+
+
+async def _refresh_embed(message: discord.Message | None, event_id: str):
+    if message is None:
+        return
+    try:
+        event = await fetch_event(event_id)
+        if not event:
+            return
+        roles   = await fetch_roles(event_id)
+        signups = await fetch_signups(event_id)
+        emojis  = await fetch_class_emojis()
+        embed   = await build_event_embed(event, roles, signups, emojis)
+        await message.edit(embed=embed)
+    except Exception as e:
+        print(f"[events] embed refresh failed: {e}")
+
+
+async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
+                         role_id, role_name, bdo_class, status: str):
+    existing = await utils.pool.fetchrow(
+        "SELECT id FROM event_signups WHERE event_id = $1 AND discord_id = $2", event_id, discord_id
+    )
+    if existing:
+        await utils.pool.execute(
+            """UPDATE event_signups
+               SET role_id = $3, role_name = $4, bdo_class = $5, status = $6, discord_name = $7
+               WHERE event_id = $1 AND discord_id = $2""",
+            event_id, discord_id, role_id, role_name, bdo_class, status, discord_name,
+        )
+    else:
+        row = await utils.pool.fetchrow(
+            "SELECT COALESCE(MAX(signup_order), 0) + 1 AS next_order FROM event_signups WHERE event_id = $1",
+            event_id
+        )
+        await utils.pool.execute(
+            """INSERT INTO event_signups
+               (event_id, discord_id, discord_name, role_id, role_name, bdo_class, signup_order, status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+            event_id, discord_id, discord_name, role_id, role_name, bdo_class, row["next_order"], status,
+        )
+    await utils.pool.execute("UPDATE events SET updated_at = NOW() WHERE id = $1", event_id)
+
+
+# ── Class selection views ──────────────────────────────────────────────────────
+
+class ClassSelectMenu1(discord.ui.Select):
+    def __init__(self, event_id: str, role_id, role_name: str):
+        self.event_id  = event_id
+        self.role_id   = role_id
+        self.role_name = role_name
+        options = [discord.SelectOption(label=c, value=c) for c in BDO_CLASSES_1]
+        super().__init__(placeholder="Select class (1/2)…", options=options, custom_id=f"cls1:{event_id}:{role_id}")
+
+    async def callback(self, interaction: discord.Interaction):
+        await _finish_signup(interaction, self.event_id, self.role_id, self.role_name, self.values[0])
+
+
+class ClassSelectMenu2(discord.ui.Select):
+    def __init__(self, event_id: str, role_id, role_name: str):
+        self.event_id  = event_id
+        self.role_id   = role_id
+        self.role_name = role_name
+        options = [discord.SelectOption(label=c, value=c) for c in BDO_CLASSES_2]
+        super().__init__(placeholder="Select class (2/2)…", options=options, custom_id=f"cls2:{event_id}:{role_id}")
+
+    async def callback(self, interaction: discord.Interaction):
+        await _finish_signup(interaction, self.event_id, self.role_id, self.role_name, self.values[0])
+
+
+class ClassSelectView(discord.ui.View):
+    def __init__(self, event_id: str, role_id, role_name: str):
+        super().__init__(timeout=120)
+        self.add_item(ClassSelectMenu1(event_id, role_id, role_name))
+        self.add_item(ClassSelectMenu2(event_id, role_id, role_name))
+
+
+async def _finish_signup(interaction: discord.Interaction, event_id: str, role_id, role_name: str, bdo_class: str):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        await _upsert_signup(
+            event_id, str(interaction.user.id), interaction.user.display_name,
+            role_id, role_name, bdo_class, "accepted",
+        )
+        await interaction.followup.send(f"Signed up as **{bdo_class}** ({role_name})!", ephemeral=True)
+        await _refresh_embed(interaction.message, event_id)
+    except Exception as e:
+        await interaction.followup.send(f"Something went wrong: {e}", ephemeral=True)
+
+
+# ── Main signup view ───────────────────────────────────────────────────────────
+
+class EventSignupView(discord.ui.View):
+    """Persistent view attached to an event embed."""
+
+    def __init__(self, event_id: str, roles: list):
+        super().__init__(timeout=None)
+        self.event_id = event_id
+
+        for role in roles:
+            cap   = role.get("soft_cap")
+            label = role["name"] + (f" ({cap})" if cap else "")
+            btn   = discord.ui.Button(
+                label=label,
+                style=discord.ButtonStyle.primary,
+                custom_id=f"signup:{event_id}:{role['id']}",
+                emoji=role.get("emoji") or None,
+            )
+            btn.callback = self._make_signup_cb(role["id"], role["name"])
+            self.add_item(btn)
+
+        for label, status, emoji_str, cid_prefix in [
+            ("Tentative", "tentative", "❓", "tentative"),
+            ("Absent",    "absent",    "🚫", "absent"),
+        ]:
+            btn = discord.ui.Button(
+                label=label, style=discord.ButtonStyle.secondary,
+                custom_id=f"{cid_prefix}:{event_id}", emoji=emoji_str,
+            )
+            btn.callback = self._make_status_cb(status)
+            self.add_item(btn)
+
+        withdraw_btn = discord.ui.Button(
+            label="Withdraw", style=discord.ButtonStyle.danger,
+            custom_id=f"withdraw:{event_id}",
+        )
+        withdraw_btn.callback = self._withdraw_cb
+        self.add_item(withdraw_btn)
+
+    def _make_signup_cb(self, role_id, role_name: str):
+        async def callback(interaction: discord.Interaction):
+            await interaction.response.send_message(
+                f"Choose your class for **{role_name}**:",
+                view=ClassSelectView(self.event_id, role_id, role_name),
+                ephemeral=True,
+            )
+        return callback
+
+    def _make_status_cb(self, status: str):
+        async def callback(interaction: discord.Interaction):
+            await interaction.response.defer(ephemeral=True)
+            try:
+                await _upsert_signup(
+                    self.event_id, str(interaction.user.id), interaction.user.display_name,
+                    None, None, None, status,
+                )
+                await interaction.followup.send(f"Marked as **{status.capitalize()}**.", ephemeral=True)
+                await _refresh_embed(interaction.message, self.event_id)
+            except Exception as e:
+                await interaction.followup.send(f"Something went wrong: {e}", ephemeral=True)
+        return callback
+
+    async def _withdraw_cb(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await utils.pool.execute(
+                "DELETE FROM event_signups WHERE event_id = $1 AND discord_id = $2",
+                self.event_id, str(interaction.user.id),
+            )
+            await utils.pool.execute("UPDATE events SET updated_at = NOW() WHERE id = $1", self.event_id)
+            await interaction.followup.send("Withdrawn from event.", ephemeral=True)
+            await _refresh_embed(interaction.message, self.event_id)
+        except Exception as e:
+            await interaction.followup.send(f"Something went wrong: {e}", ephemeral=True)
+
+
+# ── Cog ────────────────────────────────────────────────────────────────────────
 
 class EventsCog(commands.Cog, name="Events"):
 
     def __init__(self, bot):
         self.bot = bot
         self.event_reminder.start()
+        self.signup_embed_poller.start()
 
     def cog_unload(self):
         self.event_reminder.cancel()
+        self.signup_embed_poller.cancel()
+
+    # ── Calendar reminder loop (unchanged) ────────────────────────────────────
 
     @tasks.loop(minutes=1)
     async def event_reminder(self):
@@ -71,11 +341,68 @@ class EventsCog(commands.Cog, name="Events"):
     async def before_event_reminder(self):
         await self.bot.wait_until_ready()
 
+    # ── Signup embed poller ───────────────────────────────────────────────────
+
+    @tasks.loop(seconds=30)
+    async def signup_embed_poller(self):
+        try:
+            pending = await utils.pool.fetch("""
+                SELECT e.*, json_agg(
+                    json_build_object(
+                        'id', er.id, 'name', er.name, 'emoji', er.emoji,
+                        'soft_cap', er.soft_cap, 'display_order', er.display_order
+                    ) ORDER BY er.display_order
+                ) FILTER (WHERE er.id IS NOT NULL) AS roles
+                FROM events e
+                LEFT JOIN event_roles er ON er.event_id = e.id
+                WHERE e.status = 'active' AND e.message_id IS NULL AND e.channel_id IS NOT NULL
+                GROUP BY e.id
+            """)
+            for row in pending:
+                await self._post_signup_embed(dict(row))
+        except Exception as e:
+            print(f"[events] poller error: {e}")
+
+    @signup_embed_poller.before_loop
+    async def before_signup_poller(self):
+        await self.bot.wait_until_ready()
+
+    async def _post_signup_embed(self, event: dict):
+        event_id   = str(event["id"])
+        channel_id = event.get("channel_id")
+
+        channel = self.bot.get_channel(int(channel_id))
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(int(channel_id))
+            except Exception as e:
+                print(f"[events] could not fetch channel {channel_id}: {e}")
+                return
+
+        import json as _json
+        roles_raw = event.get("roles") or []
+        if isinstance(roles_raw, str):
+            roles_raw = _json.loads(roles_raw)
+        roles = [r for r in roles_raw if r]  # filter nulls from LEFT JOIN
+
+        signups = await fetch_signups(event_id)
+        emojis  = await fetch_class_emojis()
+        embed   = await build_event_embed(event, roles, signups, emojis)
+        view    = EventSignupView(event_id, roles)
+
+        msg = await channel.send(embed=embed, view=view)
+
+        await utils.pool.execute(
+            "UPDATE events SET message_id = $1, updated_at = NOW() WHERE id = $2",
+            str(msg.id), event_id,
+        )
+
+    # ── Commands ──────────────────────────────────────────────────────────────
+
     @commands.command()
+    @commands.has_permissions(manage_events=True)
     async def create_event(self, ctx, name: str, description: str, start_time_str: str, duration_minutes: int):
-        """Creates a Discord scheduled event.
-        Usage: !create_event "Name" "Description" <t:timestamp:F> duration_minutes
-        """
+        """Creates a Discord scheduled event."""
         try:
             start_time = utils.parse_discord_timestamp(start_time_str)
             if start_time is None:
