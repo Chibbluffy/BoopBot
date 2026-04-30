@@ -89,6 +89,7 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
 
     embed.add_field(name="📋 Sign Ups",  value=f"{signup_str}\n⏰ {time_val}\n📅 {date_val}", inline=True)
     embed.add_field(name="⏱️ Countdown", value=countdown,                                      inline=True)
+    embed.add_field(name="\u200b",       value="\u200b",                                        inline=True)  # fill row so roles start fresh
 
     # ── Role sections (2-column) ──────────────────────────────────────────────
     by_role: dict[str, list] = {}
