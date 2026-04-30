@@ -1,18 +1,19 @@
 import discord
 from discord.ext import commands, tasks
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import utils
 
-BDO_CLASSES_1 = [
+_ALL_CLASSES = sorted([
     "Warrior", "Sorceress", "Ranger", "Berserker", "Tamer",
     "Musa", "Maehwa", "Valkyrie", "Kunoichi", "Ninja",
     "Wizard", "Witch", "Dark Knight", "Striker", "Mystic",
     "Lahn", "Archer", "Shai", "Guardian", "Hashashin",
     "Nova", "Sage", "Corsair", "Drakania", "Woosa",
-]
-BDO_CLASSES_2 = [
     "Maegu", "Scholar", "Dosa", "Deadeye", "Legionary", "Spiritborn",
-]
+])
+BDO_CLASSES_1 = _ALL_CLASSES[:25]
+BDO_CLASSES_2 = _ALL_CLASSES[25:]
 
 STATUS_COLORS = {
     "active":    discord.Color.blurple(),
@@ -62,11 +63,14 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
 
     if event.get("event_date") and event.get("event_time"):
         try:
-            dt_str = f"{event['event_date']}T{str(event['event_time'])[:8]}+00:00"
-            dt = datetime.fromisoformat(dt_str)
+            tz_str  = event.get("event_timezone") or "UTC"
+            date_s  = str(event["event_date"])[:10]
+            time_s  = str(event["event_time"])[:5]
+            dt_naive = datetime.strptime(f"{date_s} {time_s}", "%Y-%m-%d %H:%M")
+            dt = dt_naive.replace(tzinfo=ZoneInfo(tz_str))
             embed.add_field(name="📅 Time", value=f"<t:{int(dt.timestamp())}:F>", inline=True)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[events] timestamp error: {e}")
 
     accepted = [s for s in signups if s["status"] == "accepted"]
     embed.add_field(name="👥 Signed up", value=str(len(accepted)), inline=True)
@@ -180,16 +184,30 @@ class ClassSelectView(discord.ui.View):
 
 
 async def _finish_signup(interaction: discord.Interaction, event_id: str, role_id, role_name: str, bdo_class: str):
-    await interaction.response.defer(ephemeral=True)
     try:
         await _upsert_signup(
             event_id, str(interaction.user.id), interaction.user.display_name,
             role_id, role_name, bdo_class, "accepted",
         )
-        await interaction.followup.send(f"Signed up as **{bdo_class}** ({role_name})!", ephemeral=True)
-        await _refresh_embed(interaction.message, event_id)
+        await interaction.response.edit_message(
+            content=f"✅ Signed up as **{bdo_class}** for **{role_name}**!",
+            view=None,
+        )
+        event = await fetch_event(event_id)
+        if event and event.get("message_id") and event.get("channel_id"):
+            try:
+                channel = interaction.client.get_channel(int(event["channel_id"]))
+                if channel is None:
+                    channel = await interaction.client.fetch_channel(int(event["channel_id"]))
+                msg = await channel.fetch_message(int(event["message_id"]))
+                await _refresh_embed(msg, event_id)
+            except Exception as e:
+                print(f"[events] embed refresh failed: {e}")
     except Exception as e:
-        await interaction.followup.send(f"Something went wrong: {e}", ephemeral=True)
+        try:
+            await interaction.response.edit_message(content=f"Something went wrong: {e}", view=None)
+        except Exception:
+            await interaction.followup.send(f"Something went wrong: {e}", ephemeral=True)
 
 
 # ── Main signup view ───────────────────────────────────────────────────────────
