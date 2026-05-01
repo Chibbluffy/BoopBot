@@ -17,9 +17,8 @@ BDO_CLASSES_1 = _ALL_CLASSES[:25]   # Archer – Valkyrie
 BDO_CLASSES_2 = _ALL_CLASSES[25:]   # Warrior – Woosa
 
 STATUS_COLORS = {
-    "active":    discord.Color.blurple(),
-    "closed":    discord.Color.dark_grey(),
-    "cancelled": discord.Color.red(),
+    "active": discord.Color.blurple(),
+    "closed": discord.Color.dark_grey(),
 }
 
 
@@ -183,30 +182,57 @@ async def _refresh_embed(message: discord.Message | None, event_id: str):
         print(f"[events] embed refresh failed: {e}")
 
 
-async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
-                         role_id, role_name, bdo_class, status: str):
-    existing = await utils.pool.fetchrow(
-        "SELECT id FROM event_signups WHERE event_id = $1 AND discord_id = $2", event_id, discord_id
-    )
-    if existing:
+async def _sync_calendar_interest(event_id: str, discord_id: str, add: bool):
+    """Add or remove a user's interest in the calendar event linked to this guild event."""
+    ev = await utils.pool.fetchrow("SELECT calendar_event_id FROM events WHERE id = $1", event_id)
+    if not ev or not ev["calendar_event_id"]:
+        return
+    user = await utils.pool.fetchrow("SELECT id FROM users WHERE discord_id = $1", discord_id)
+    if not user:
+        return
+    cal_id = ev["calendar_event_id"]
+    uid    = user["id"]
+    if add:
         await utils.pool.execute(
-            """UPDATE event_signups
-               SET role_id = $3, role_name = $4, bdo_class = $5, status = $6, discord_name = $7
-               WHERE event_id = $1 AND discord_id = $2""",
-            event_id, discord_id, role_id, role_name, bdo_class, status, discord_name,
+            "INSERT INTO calendar_event_interests (event_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            cal_id, uid,
         )
     else:
-        row = await utils.pool.fetchrow(
-            "SELECT COALESCE(MAX(signup_order), 0) + 1 AS next_order FROM event_signups WHERE event_id = $1",
-            event_id
-        )
         await utils.pool.execute(
-            """INSERT INTO event_signups
-               (event_id, discord_id, discord_name, role_id, role_name, bdo_class, signup_order, status)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
-            event_id, discord_id, discord_name, role_id, role_name, bdo_class, row["next_order"], status,
+            "DELETE FROM calendar_event_interests WHERE event_id = $1 AND user_id = $2",
+            cal_id, uid,
         )
-    await utils.pool.execute("UPDATE events SET updated_at = NOW() WHERE id = $1", event_id)
+
+
+async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
+                         role_id, role_name, bdo_class, status: str):
+    async with utils.pool.acquire() as conn:
+        async with conn.transaction():
+            # Lock the event row so concurrent signups get sequential signup_order values
+            await conn.execute("SELECT id FROM events WHERE id = $1 FOR UPDATE", event_id)
+            existing = await conn.fetchrow(
+                "SELECT id FROM event_signups WHERE event_id = $1 AND discord_id = $2", event_id, discord_id
+            )
+            if existing:
+                await conn.execute(
+                    """UPDATE event_signups
+                       SET role_id = $3, role_name = $4, bdo_class = $5, status = $6, discord_name = $7
+                       WHERE event_id = $1 AND discord_id = $2""",
+                    event_id, discord_id, role_id, role_name, bdo_class, status, discord_name,
+                )
+            else:
+                row = await conn.fetchrow(
+                    "SELECT COALESCE(MAX(signup_order), 0) + 1 AS next_order FROM event_signups WHERE event_id = $1",
+                    event_id
+                )
+                await conn.execute(
+                    """INSERT INTO event_signups
+                       (event_id, discord_id, discord_name, role_id, role_name, bdo_class, signup_order, status)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+                    event_id, discord_id, discord_name, role_id, role_name, bdo_class, row["next_order"], status,
+                )
+            await conn.execute("UPDATE events SET updated_at = NOW() WHERE id = $1", event_id)
+    await _sync_calendar_interest(event_id, discord_id, add=(status != "absent"))
 
 
 async def _is_event_open(event_id: str) -> tuple[bool, str]:
@@ -450,6 +476,7 @@ class EventSignupView(discord.ui.View):
                 self.event_id, str(interaction.user.id),
             )
             await utils.pool.execute("UPDATE events SET updated_at = NOW() WHERE id = $1", self.event_id)
+            await _sync_calendar_interest(self.event_id, str(interaction.user.id), add=False)
             await interaction.followup.send("Withdrawn from event.", ephemeral=True)
             msg = await self._fetch_embed_msg(interaction.client)
             await _refresh_embed(msg, self.event_id)
