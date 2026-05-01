@@ -405,6 +405,20 @@ class EventSignupView(discord.ui.View):
             )
         return callback
 
+    async def _fetch_embed_msg(self, client: discord.Client):
+        """Fetch the event's Discord message via DB so we don't rely on interaction.message."""
+        event = await fetch_event(self.event_id)
+        if not event or not event.get("message_id") or not event.get("channel_id"):
+            return None
+        try:
+            ch = client.get_channel(int(event["channel_id"]))
+            if ch is None:
+                ch = await client.fetch_channel(int(event["channel_id"]))
+            return await ch.fetch_message(int(event["message_id"]))
+        except Exception as e:
+            print(f"[events] could not fetch embed message: {e}")
+            return None
+
     def _make_status_cb(self, status: str):
         async def callback(interaction: discord.Interaction):
             await interaction.response.defer(ephemeral=True)
@@ -418,7 +432,8 @@ class EventSignupView(discord.ui.View):
                     None, None, None, status,
                 )
                 await interaction.followup.send(f"Marked as **{status.capitalize()}**.", ephemeral=True)
-                await _refresh_embed(interaction.message, self.event_id)
+                msg = await self._fetch_embed_msg(interaction.client)
+                await _refresh_embed(msg, self.event_id)
             except Exception as e:
                 await interaction.followup.send(f"Something went wrong: {e}", ephemeral=True)
         return callback
@@ -436,7 +451,8 @@ class EventSignupView(discord.ui.View):
             )
             await utils.pool.execute("UPDATE events SET updated_at = NOW() WHERE id = $1", self.event_id)
             await interaction.followup.send("Withdrawn from event.", ephemeral=True)
-            await _refresh_embed(interaction.message, self.event_id)
+            msg = await self._fetch_embed_msg(interaction.client)
+            await _refresh_embed(msg, self.event_id)
         except Exception as e:
             await interaction.followup.send(f"Something went wrong: {e}", ephemeral=True)
 
@@ -451,7 +467,8 @@ class EventSignupView(discord.ui.View):
                 self.event_id,
             )
             await interaction.followup.send("🔒 Signups have been closed.", ephemeral=True)
-            await _refresh_embed(interaction.message, self.event_id)
+            msg = await self._fetch_embed_msg(interaction.client)
+            await _refresh_embed(msg, self.event_id)
         except Exception as e:
             await interaction.followup.send(f"Something went wrong: {e}", ephemeral=True)
 
@@ -571,18 +588,23 @@ class EventsCog(commands.Cog, name="Events"):
     # ── LISTEN/NOTIFY handler ─────────────────────────────────────────────────
 
     async def _start_listener(self):
+        import asyncio
         await self.bot.wait_until_ready()
         while True:
             try:
                 self._listen_conn = await asyncpg.connect(os.getenv("DATABASE_URL"))
                 await self._listen_conn.add_listener("event_updated", self._on_event_notify)
                 print("[events] LISTEN connection established")
-                # Keep connection alive; it fires callbacks until closed
-                await self._listen_conn.wait_closed()
+                # asyncpg Connection has no wait_closed() — poll is_closed() instead
+                while not self._listen_conn.is_closed():
+                    await asyncio.sleep(10)
+                print("[events] LISTEN connection closed — reconnecting")
             except Exception as e:
-                print(f"[events] LISTEN connection lost: {e} — reconnecting in 5s")
-                import asyncio
-                await asyncio.sleep(5)
+                print(f"[events] LISTEN connection error: {e} — reconnecting in 5s")
+            finally:
+                if self._listen_conn and not self._listen_conn.is_closed():
+                    await self._listen_conn.close()
+            await asyncio.sleep(5)
 
     async def _on_event_notify(self, conn, pid, channel, event_id: str):
         try:
