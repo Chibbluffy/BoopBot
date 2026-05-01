@@ -177,7 +177,8 @@ async def _refresh_embed(message: discord.Message | None, event_id: str):
         signups = await fetch_signups(event_id)
         emojis  = await fetch_class_emojis()
         embed   = await build_event_embed(event, roles, signups, emojis)
-        await message.edit(embed=embed)
+        view    = EventSignupView(event_id, roles, status=event.get("status", "active"))
+        await message.edit(embed=embed, view=view)
     except Exception as e:
         print(f"[events] embed refresh failed: {e}")
 
@@ -314,9 +315,19 @@ async def _finish_signup(interaction: discord.Interaction, event_id: str, role_i
 class EventSignupView(discord.ui.View):
     """Persistent view attached to an event embed."""
 
-    def __init__(self, event_id: str, roles: list):
+    def __init__(self, event_id: str, roles: list, status: str = "active"):
         super().__init__(timeout=None)
         self.event_id = event_id
+
+        if status != "active":
+            # Replace all buttons with a single disabled indicator
+            self.add_item(discord.ui.Button(
+                label="🔒 Signups Closed",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"closed_info:{event_id}",
+                disabled=True,
+            ))
+            return
 
         for role in roles:
             cap   = role.get("soft_cap")
@@ -493,7 +504,7 @@ class EventsCog(commands.Cog, name="Events"):
             if isinstance(roles_raw, str):
                 roles_raw = _json.loads(roles_raw)
             roles = [r for r in roles_raw if r]
-            self.bot.add_view(EventSignupView(event_id, roles), message_id=message_id)
+            self.bot.add_view(EventSignupView(event_id, roles, status=str(row["status"])), message_id=message_id)
             count += 1
         print(f"[events] restored {count} persistent view(s)")
 
@@ -593,7 +604,8 @@ class EventsCog(commands.Cog, name="Events"):
             msg = await channel_obj.fetch_message(int(event["message_id"]))
 
             embed = await build_event_embed(event, roles, signups, emojis)
-            await msg.edit(embed=embed)
+            view  = EventSignupView(event_id, roles, status=event.get("status", "active"))
+            await msg.edit(embed=embed, view=view)
         except Exception as e:
             print(f"[events] notify handler error for {event_id}: {e}")
 
@@ -632,7 +644,7 @@ class EventsCog(commands.Cog, name="Events"):
         signups = await fetch_signups(event_id)
         emojis  = await fetch_class_emojis()
         embed   = await build_event_embed(event, roles, signups, emojis)
-        view    = EventSignupView(event_id, roles)
+        view    = EventSignupView(event_id, roles, status=event.get("status", "active"))
 
         msg = await channel.send(embed=embed, view=view)
 
