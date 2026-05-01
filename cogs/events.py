@@ -454,15 +454,19 @@ class EventsCog(commands.Cog, name="Events"):
         self.event_reminder.cancel()
         self.new_embed_poller.cancel()
         if self._listen_conn:
-            self.bot.loop.create_task(self._listen_conn.close())
+            import asyncio
+            asyncio.ensure_future(self._listen_conn.close())
 
     async def cog_load(self):
-        self.bot.loop.create_task(self._start_listener())
-        self.bot.loop.create_task(self._restore_views())
+        # Restore views synchronously here — pool is available and add_view
+        # works before the bot connects, so no need to wait_until_ready.
+        await self._restore_views()
+        # Listener needs an active gateway connection, so defer it.
+        import asyncio
+        asyncio.ensure_future(self._start_listener())
 
     async def _restore_views(self):
-        """Re-register persistent views for all active events so buttons work after restart."""
-        await self.bot.wait_until_ready()
+        """Re-register persistent views for all active events so buttons survive restarts."""
         import json as _json
         rows = await utils.pool.fetch("""
             SELECT e.id, e.message_id,
@@ -473,7 +477,7 @@ class EventsCog(commands.Cog, name="Events"):
                 ) FILTER (WHERE er.id IS NOT NULL) AS roles
             FROM events e
             LEFT JOIN event_roles er ON er.event_id = e.id
-            WHERE e.status = 'active' AND e.message_id IS NOT NULL
+            WHERE e.status IN ('active', 'closed') AND e.message_id IS NOT NULL
             GROUP BY e.id
         """)
         count = 0
