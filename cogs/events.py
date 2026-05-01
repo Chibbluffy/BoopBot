@@ -138,15 +138,36 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
         embed.add_field(name=f"📌 No Role ({len(no_role)})", value="\n".join(lines), inline=True)
 
     # ── Bench / Tentative / Absent ────────────────────────────────────────────
-    status_members = [(label, status_key, icon)
-                      for label, status_key, icon in [("Bench", "bench", "🪑"), ("Tentative", "tentative", "❓"), ("Absent", "absent", "🚫")]
-                      if any(s["status"] == status_key for s in signups)]
+    bench_members     = [s for s in signups if s["status"] == "bench"]
+    tentative_members = [s for s in signups if s["status"] == "tentative"]
+    absent_members    = [s for s in signups if s["status"] == "absent"]
 
-    if status_members:
+    if bench_members or tentative_members or absent_members:
         embed.add_field(name="\u200b", value="─────────────────────", inline=False)
 
-    for label, status_key, icon in status_members:
-        members = [s for s in signups if s["status"] == status_key]
+    # Bench — grouped by the role they wanted
+    if bench_members:
+        by_wanted: dict[str, list] = {}
+        for s in bench_members:
+            key = s.get("role_name") or "No Role"
+            by_wanted.setdefault(key, []).append(s)
+
+        for role_name, members in by_wanted.items():
+            parts = []
+            for s in members:
+                cls_emoji = class_emojis.get(s.get("bdo_class") or "", "")
+                parts.append(
+                    f"{cls_emoji} {s['signup_order']} {s['discord_name']}"
+                    if cls_emoji else f"{s['signup_order']} {s['discord_name']}"
+                )
+            embed.add_field(
+                name=f"🪑 Bench — {role_name} ({len(members)})",
+                value=" · ".join(parts),
+                inline=False,
+            )
+
+    # Tentative / Absent — flat list
+    for label, icon, members in [("Tentative", "❓", tentative_members), ("Absent", "🚫", absent_members)]:
         if members:
             parts = []
             for s in members:
@@ -204,6 +225,39 @@ async def _sync_calendar_interest(event_id: str, discord_id: str, add: bool):
         )
 
 
+async def _try_promote_bench(event_id: str, role_id, conn) -> None:
+    """Promote the earliest bench signup for a role to accepted if caps allow."""
+    event_row = await conn.fetchrow("SELECT total_cap FROM events WHERE id = $1", event_id)
+    if event_row and event_row["total_cap"]:
+        total_accepted = await conn.fetchval(
+            "SELECT COUNT(*) FROM event_signups WHERE event_id = $1 AND status = 'accepted'",
+            event_id,
+        )
+        if total_accepted >= event_row["total_cap"]:
+            return
+
+    if role_id:
+        role_row = await conn.fetchrow("SELECT soft_cap FROM event_roles WHERE id = $1", role_id)
+        if role_row and role_row["soft_cap"] is not None:
+            role_accepted = await conn.fetchval(
+                "SELECT COUNT(*) FROM event_signups WHERE event_id = $1 AND role_id = $2 AND status = 'accepted'",
+                event_id, role_id,
+            )
+            if role_accepted >= role_row["soft_cap"]:
+                return
+
+    bench = await conn.fetchrow(
+        """SELECT id FROM event_signups
+           WHERE event_id = $1 AND role_id IS NOT DISTINCT FROM $2 AND status = 'bench'
+           ORDER BY signup_order ASC LIMIT 1""",
+        event_id, role_id,
+    )
+    if bench:
+        await conn.execute(
+            "UPDATE event_signups SET status = 'accepted' WHERE id = $1", bench["id"]
+        )
+
+
 async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
                          role_id, role_name, bdo_class, status: str):
     async with utils.pool.acquire() as conn:
@@ -237,15 +291,30 @@ async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
                         status = "bench"
 
             existing = await conn.fetchrow(
-                "SELECT id FROM event_signups WHERE event_id = $1 AND discord_id = $2", event_id, discord_id
+                "SELECT id, role_id, signup_order, status AS old_status FROM event_signups WHERE event_id = $1 AND discord_id = $2",
+                event_id, discord_id,
             )
             if existing:
+                existing_role = str(existing["role_id"]) if existing["role_id"] else None
+                new_role      = str(role_id) if role_id else None
+                role_changed  = existing_role != new_role
+                if role_changed:
+                    order_row = await conn.fetchrow(
+                        "SELECT COALESCE(MAX(signup_order), 0) + 1 AS next_order FROM event_signups WHERE event_id = $1",
+                        event_id,
+                    )
+                    new_order = order_row["next_order"]
+                else:
+                    new_order = existing["signup_order"]
                 await conn.execute(
                     """UPDATE event_signups
-                       SET role_id = $3, role_name = $4, bdo_class = $5, status = $6, discord_name = $7
+                       SET role_id = $3, role_name = $4, bdo_class = $5, status = $6, discord_name = $7, signup_order = $8
                        WHERE event_id = $1 AND discord_id = $2""",
-                    event_id, discord_id, role_id, role_name, bdo_class, status, discord_name,
+                    event_id, discord_id, role_id, role_name, bdo_class, status, discord_name, new_order,
                 )
+                # Freed an accepted slot in the old role — try to promote from bench
+                if role_changed and existing["old_status"] == "accepted":
+                    await _try_promote_bench(event_id, existing["role_id"], conn)
             else:
                 row = await conn.fetchrow(
                     "SELECT COALESCE(MAX(signup_order), 0) + 1 AS next_order FROM event_signups WHERE event_id = $1",
@@ -397,7 +466,6 @@ class EventSignupView(discord.ui.View):
 
         for label, status, emoji_str, cid_prefix in [
             ("Tentative", "tentative", "❓", "tentative"),
-            ("Absent",    "absent",    "🚫", "absent"),
         ]:
             btn = discord.ui.Button(
                 label=label, style=discord.ButtonStyle.secondary,
@@ -499,11 +567,19 @@ class EventSignupView(discord.ui.View):
             await interaction.followup.send(f"🔒 {reason}", ephemeral=True)
             return
         try:
-            await utils.pool.execute(
-                "DELETE FROM event_signups WHERE event_id = $1 AND discord_id = $2",
-                self.event_id, str(interaction.user.id),
-            )
-            await utils.pool.execute("UPDATE events SET updated_at = NOW() WHERE id = $1", self.event_id)
+            async with utils.pool.acquire() as conn:
+                async with conn.transaction():
+                    old = await conn.fetchrow(
+                        "SELECT role_id, status FROM event_signups WHERE event_id = $1 AND discord_id = $2",
+                        self.event_id, str(interaction.user.id),
+                    )
+                    await conn.execute(
+                        "DELETE FROM event_signups WHERE event_id = $1 AND discord_id = $2",
+                        self.event_id, str(interaction.user.id),
+                    )
+                    await conn.execute("UPDATE events SET updated_at = NOW() WHERE id = $1", self.event_id)
+                    if old and old["status"] == "accepted":
+                        await _try_promote_bench(self.event_id, old["role_id"], conn)
             await _sync_calendar_interest(self.event_id, str(interaction.user.id), add=False)
             await interaction.followup.send("Withdrawn from event.", ephemeral=True)
             msg = await self._fetch_embed_msg(interaction.client)
