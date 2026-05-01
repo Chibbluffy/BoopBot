@@ -208,8 +208,34 @@ async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
                          role_id, role_name, bdo_class, status: str):
     async with utils.pool.acquire() as conn:
         async with conn.transaction():
-            # Lock the event row so concurrent signups get sequential signup_order values
-            await conn.execute("SELECT id FROM events WHERE id = $1 FOR UPDATE", event_id)
+            # Lock the event row to serialize concurrent signups
+            event_row = await conn.fetchrow(
+                "SELECT id, total_cap FROM events WHERE id = $1 FOR UPDATE", event_id
+            )
+
+            # Cap enforcement: only applies when trying to be accepted
+            if status == "accepted":
+                # Count accepted signups on this event, excluding the current user
+                # (they may be switching roles, so their old slot doesn't count against them)
+                total_accepted = await conn.fetchval(
+                    "SELECT COUNT(*) FROM event_signups WHERE event_id = $1 AND status = 'accepted' AND discord_id != $2",
+                    event_id, discord_id,
+                )
+                if event_row["total_cap"] and total_accepted >= event_row["total_cap"]:
+                    status = "bench"
+
+            if status == "accepted" and role_id:
+                role_row = await conn.fetchrow(
+                    "SELECT soft_cap FROM event_roles WHERE id = $1", role_id
+                )
+                if role_row and role_row["soft_cap"] is not None:
+                    role_accepted = await conn.fetchval(
+                        "SELECT COUNT(*) FROM event_signups WHERE event_id = $1 AND role_id = $2 AND status = 'accepted' AND discord_id != $3",
+                        event_id, role_id, discord_id,
+                    )
+                    if role_accepted >= role_row["soft_cap"]:
+                        status = "bench"
+
             existing = await conn.fetchrow(
                 "SELECT id FROM event_signups WHERE event_id = $1 AND discord_id = $2", event_id, discord_id
             )
@@ -233,6 +259,7 @@ async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
                 )
             await conn.execute("UPDATE events SET updated_at = NOW() WHERE id = $1", event_id)
     await _sync_calendar_interest(event_id, discord_id, add=(status != "absent"))
+    return status
 
 
 async def _is_event_open(event_id: str) -> tuple[bool, str]:
@@ -311,14 +338,15 @@ class ClassSelectView(discord.ui.View):
 
 async def _finish_signup(interaction: discord.Interaction, event_id: str, role_id, role_name: str, bdo_class: str):
     try:
-        await _upsert_signup(
+        resolved = await _upsert_signup(
             event_id, str(interaction.user.id), interaction.user.display_name,
             role_id, role_name, bdo_class, "accepted",
         )
-        await interaction.response.edit_message(
-            content=f"✅ Signed up as **{bdo_class}** for **{role_name}**!",
-            view=None,
-        )
+        if resolved == "bench":
+            msg = f"🪑 Added to **bench** as **{bdo_class}** for **{role_name}** — the role or event is full."
+        else:
+            msg = f"✅ Signed up as **{bdo_class}** for **{role_name}**!"
+        await interaction.response.edit_message(content=msg, view=None)
         event = await fetch_event(event_id)
         if event and event.get("message_id") and event.get("channel_id"):
             try:
