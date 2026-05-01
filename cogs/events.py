@@ -92,8 +92,9 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
     embed.add_field(name="⏱️ Countdown", value=countdown,                                      inline=True)
     embed.add_field(name="\u200b",       value="\u200b",                                        inline=True)  # fill row so roles start fresh
 
-    # Spacing separator before roles
-    embed.add_field(name="\u200b", value="─────────────────────", inline=False)
+    # Spacing separator before roles (only if there are roles to show)
+    if roles:
+        embed.add_field(name="\u200b", value="─────────────────────", inline=False)
 
     # ── Role sections (2-column) ──────────────────────────────────────────────
     by_role: dict[str, list] = {}
@@ -137,11 +138,15 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
             )
         embed.add_field(name=f"📌 No Role ({len(no_role)})", value="\n".join(lines), inline=True)
 
-    # Spacing separator before tentative/absent
-    embed.add_field(name="\u200b", value="─────────────────────", inline=False)
-
     # ── Bench / Tentative / Absent ────────────────────────────────────────────
-    for label, status_key, icon in [("Bench", "bench", "🪑"), ("Tentative", "tentative", "❓"), ("Absent", "absent", "🚫")]:
+    status_members = [(label, status_key, icon)
+                      for label, status_key, icon in [("Bench", "bench", "🪑"), ("Tentative", "tentative", "❓"), ("Absent", "absent", "🚫")]
+                      if any(s["status"] == status_key for s in signups)]
+
+    if status_members:
+        embed.add_field(name="\u200b", value="─────────────────────", inline=False)
+
+    for label, status_key, icon in status_members:
         members = [s for s in signups if s["status"] == status_key]
         if members:
             parts = []
@@ -598,16 +603,8 @@ class EventsCog(commands.Cog, name="Events"):
     async def new_embed_poller(self):
         try:
             rows = await utils.pool.fetch("""
-                SELECT e.*, json_agg(
-                    json_build_object(
-                        'id', er.id, 'name', er.name, 'emoji', er.emoji,
-                        'soft_cap', er.soft_cap, 'display_order', er.display_order
-                    ) ORDER BY er.display_order
-                ) FILTER (WHERE er.id IS NOT NULL) AS roles
-                FROM events e
-                LEFT JOIN event_roles er ON er.event_id = e.id
-                WHERE e.status = 'active' AND e.message_id IS NULL AND e.channel_id IS NOT NULL
-                GROUP BY e.id
+                SELECT * FROM events
+                WHERE status = 'active' AND message_id IS NULL AND channel_id IS NOT NULL
             """)
             for row in rows:
                 await self._post_signup_embed(dict(row))
@@ -630,12 +627,8 @@ class EventsCog(commands.Cog, name="Events"):
                 print(f"[events] could not fetch channel {channel_id}: {e}")
                 return
 
-        import json as _json
-        roles_raw = event.get("roles") or []
-        if isinstance(roles_raw, str):
-            roles_raw = _json.loads(roles_raw)
-        roles = [r for r in roles_raw if r]  # filter nulls from LEFT JOIN
-
+        # Always fetch roles from DB — don't rely on the event dict having them
+        roles   = await fetch_roles(event_id)
         signups = await fetch_signups(event_id)
         emojis  = await fetch_class_emojis()
         embed   = await build_event_embed(event, roles, signups, emojis)
