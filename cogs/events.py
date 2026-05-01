@@ -557,7 +557,7 @@ class EventsCog(commands.Cog, name="Events"):
         """Re-register persistent views for all active events so buttons survive restarts."""
         import json as _json
         rows = await utils.pool.fetch("""
-            SELECT e.id, e.message_id,
+            SELECT e.id, e.status, e.message_id,
                 json_agg(
                     json_build_object('id', er.id, 'name', er.name, 'emoji', er.emoji,
                                       'soft_cap', er.soft_cap, 'display_order', er.display_order)
@@ -570,14 +570,20 @@ class EventsCog(commands.Cog, name="Events"):
         """)
         count = 0
         for row in rows:
-            event_id   = str(row["id"])
-            message_id = int(row["message_id"])
-            roles_raw  = row["roles"] or []
-            if isinstance(roles_raw, str):
-                roles_raw = _json.loads(roles_raw)
-            roles = [r for r in roles_raw if r]
-            self.bot.add_view(EventSignupView(event_id, roles, status=str(row["status"])), message_id=message_id)
-            count += 1
+            try:
+                event_id   = str(row["id"])
+                message_id = int(row["message_id"])
+                roles_raw  = row["roles"] or []
+                if isinstance(roles_raw, str):
+                    roles_raw = _json.loads(roles_raw)
+                roles = [r for r in roles_raw if r]
+                self.bot.add_view(
+                    EventSignupView(event_id, roles, status=str(row["status"])),
+                    message_id=message_id,
+                )
+                count += 1
+            except Exception as e:
+                print(f"[events] failed to restore view for event {row.get('id')}: {e}")
         print(f"[events] restored {count} persistent view(s)")
 
     # ── Calendar reminder loop (unchanged) ────────────────────────────────────
