@@ -361,10 +361,13 @@ class BestFishersView(discord.ui.View):
 
 
 class FishingView(discord.ui.View):
-    def __init__(self, caster_id: int, timeout: float = 20):
+    def __init__(self, caster_id: int, timeout: float = 20,
+                 label: str = "🎣 Reel In!", style: discord.ButtonStyle = discord.ButtonStyle.primary):
         super().__init__(timeout=timeout)
-        self.caster_id = caster_id
-        self.clicked   = False
+        self.caster_id      = caster_id
+        self.clicked        = False
+        self.reel_in.label  = label
+        self.reel_in.style  = style
 
     @discord.ui.button(label="🎣 Reel In!", style=discord.ButtonStyle.primary)
     async def reel_in(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -520,25 +523,66 @@ class FishingCog(commands.Cog, name="Fishing"):
         fish_name, value, tier, size_kg = _roll_fish(score)
 
         is_legendary = (tier == 5)
+
         if is_legendary:
-            embed.description = "⚠️ **MASSIVE PULL!** Something enormous is on the line!"
-            embed.color       = 0xffd700
+            # ── 3-round legendary battle ───────────────────────────────────────
+            _ROUNDS = [
+                ("💪 Hold On!",    discord.ButtonStyle.success, "🟡⬛⬛  **Round 1 / 3**\n\nIt's **fighting back hard** — hold on tight!"),
+                ("🎣 Pull!",       discord.ButtonStyle.primary,  "✅🟡⬛  **Round 2 / 3**\n\nIt's slowing down — **pull with everything you've got!**"),
+                ("🏆 Reel It In!", discord.ButtonStyle.danger,   "✅✅🟡  **Round 3 / 3**\n\n**NOW! REEL IT IN!**"),
+            ]
+            _WAIT_MSGS = [
+                "✅⬛⬛  You're holding on...\n\n*It's tiring out — get ready...*",
+                "✅✅⬛  Almost there...\n\n*One final push — stay focused...*",
+            ]
+            _FAIL_MSGS = [
+                "💨 It **snapped the line** and escaped into the deep...",
+                "😮 You **lost your grip!** It slipped away!",
+                "💔 **So close...** It broke free at the very last second!",
+            ]
+
+            embed.color = 0xffd700
+            fail_msg    = None
+
+            for i, (btn_label, btn_style, fight_msg) in enumerate(_ROUNDS):
+                embed.description = f"⚠️ **LEGENDARY FISH ON THE LINE!**\n\n{fight_msg}"
+                view = FishingView(ctx.author.id, timeout=5, label=btn_label, style=btn_style)
+                await cast_msg.edit(embed=embed, view=view)
+                timed_out = await view.wait()
+
+                if timed_out or not view.clicked:
+                    fail_msg = _FAIL_MSGS[i]
+                    break
+
+                if i < len(_ROUNDS) - 1:
+                    embed.description = f"⚠️ **LEGENDARY FISH ON THE LINE!**\n\n{_WAIT_MSGS[i]}"
+                    await cast_msg.edit(embed=embed, view=discord.ui.View())
+                    await asyncio.sleep(random.uniform(3, 7))
+
+            try:
+                await cast_msg.delete()
+            except discord.NotFound:
+                pass
+
+            if fail_msg:
+                await self._update_log(ctx, f"🌊 {fail_msg}", await utils.get_boops(discord_id), 0)
+                return
+
         else:
+            # ── Normal single-click flow ───────────────────────────────────────
             embed.description = "🐟 Something's tugging on the line! Quick!"
+            view = FishingView(ctx.author.id, timeout=20)
+            await cast_msg.edit(embed=embed, view=view)
+            timed_out = await view.wait()
 
-        view = FishingView(ctx.author.id, timeout=3 if is_legendary else 20)
-        await cast_msg.edit(embed=embed, view=view)
+            try:
+                await cast_msg.delete()
+            except discord.NotFound:
+                pass
 
-        timed_out = await view.wait()
-
-        try:
-            await cast_msg.delete()
-        except discord.NotFound:
-            pass
-
-        if timed_out or not view.clicked:
-            await self._update_log(ctx, "🌊 Got away...", await utils.get_boops(discord_id), 0)
-            return
+            if timed_out or not view.clicked:
+                await self._update_log(ctx, "🌊 Got away...", await utils.get_boops(discord_id), 0)
+                return
 
         if profile["active_bait"] and tier > 0:
             await utils.use_bait(discord_id, profile["active_bait"])
