@@ -68,6 +68,64 @@ class LeaderboardNewPagination(discord.ui.View):
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
 
+class APLeaderboardPagination(discord.ui.View):
+    def __init__(self, data, author_id):
+        super().__init__(timeout=60)
+        self.data         = data  # list of (name, ap, aap)
+        self.author_id    = author_id
+        self.per_page     = 15
+        self.current_page = 0
+        self.total_pages  = (len(data) - 1) // self.per_page + 1
+        self._sync_buttons()
+
+    def _sync_buttons(self):
+        self.previous_button.disabled = self.current_page == 0
+        self.next_button.disabled     = self.current_page == self.total_pages - 1
+
+    def create_embed(self):
+        start      = self.current_page * self.per_page
+        page_slice = self.data[start:start + self.per_page]
+        lines = []
+        for i, (name, ap, aap) in enumerate(page_slice):
+            rank    = start + i + 1
+            ap_val  = ap  or 0
+            aap_val = aap or 0
+            if ap_val >= aap_val:
+                line = f"**{rank}. {name}** — **{ap_val} AP**"
+                if aap_val > 0:
+                    line += f"  ·  AAP {aap_val}"
+            else:
+                line = f"**{rank}. {name}** — **{aap_val} AAP**"
+                if ap_val > 0:
+                    line += f"  ·  AP {ap_val}"
+            lines.append(line)
+        embed = discord.Embed(
+            title="⚔️ AP Leaderboard",
+            description="\n".join(lines).rstrip(),
+            color=discord.Color.orange(),
+        )
+        embed.set_footer(text=f"Sorted by effective AP — max(AP, AAP)  ·  Page {self.current_page + 1} of {self.total_pages}")
+        return embed
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("This isn't your leaderboard!", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.gray)
+    async def previous_button(self, interaction, button):
+        self.current_page -= 1
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.gray)
+    async def next_button(self, interaction, button):
+        self.current_page += 1
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+
 class GearCog(commands.Cog, name="Gear"):
 
     def __init__(self, bot):
@@ -157,6 +215,20 @@ class GearCog(commands.Cog, name="Gear"):
         if not leaderboard:
             return
         view = LeaderboardNewPagination(leaderboard, "Guild Gear Score Leaderboard", ctx.author.id)
+        await ctx.send(embed=view.create_embed(), view=view)
+
+    @commands.command()
+    async def aplb(self, ctx):
+        """AP leaderboard sorted by effective AP — max(AP, AAP)."""
+        rows = await self._build_table(ctx, sort_col=0, reverse=False)
+        if not rows:
+            return
+        ap_rows = [(name, ap, aap) for name, ap, aap, dp, gs in rows if ap is not None or aap is not None]
+        ap_rows.sort(key=lambda x: max(x[1] or 0, x[2] or 0), reverse=True)
+        if not ap_rows:
+            await ctx.send("No AP data available.")
+            return
+        view = APLeaderboardPagination(ap_rows, ctx.author.id)
         await ctx.send(embed=view.create_embed(), view=view)
 
     @commands.command()
