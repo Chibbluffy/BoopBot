@@ -600,18 +600,23 @@ class FishingCog(commands.Cog, name="Fishing"):
     @commands.command(name="shop")
     async def shop(self, ctx):
         """Browse the fishing shop."""
-        profile = await utils.get_fishing_profile(str(ctx.author.id))
-        gs      = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
-        embed   = discord.Embed(title="🏪 Fishing Shop", description=f"⚙️ Your Fishing GS: **{gs}**", color=discord.Color.blurple())
+        discord_id = str(ctx.author.id)
+        inv        = await utils.get_inventory(discord_id)
+        boops      = await utils.get_boops(discord_id)
+        embed      = discord.Embed(title="🏪 Fishing Shop", description=f"💰 **Your balance: {boops:,} boops**", color=discord.Color.blurple())
         for category, label in [("rod", "🎣 Rods"), ("float", "🪝 Floats"), ("bait", "🪱 Bait")]:
             lines = []
             for item_id, item in SHOP_ITEMS.items():
                 if item["category"] != category:
                     continue
                 if category == "bait":
-                    lines.append(f"**{item['name']}** — {item['price']} ea\n  _{item['desc']}_")
+                    qty   = inv.get(item_id, 0)
+                    stock = f"  · **×{qty}** owned" if qty > 0 else ""
+                    lines.append(f"**{item['name']}** — {item['price']:,} ea{stock}\n  _{item['desc']}_")
                 else:
-                    lines.append(f"**{item['name']}** — {item['price']:,} boops\n  _{item['desc']}_")
+                    owned = inv.get(item_id, 0) > 0
+                    tag   = "  ✅ owned" if owned else ""
+                    lines.append(f"**{item['name']}** — {item['price']:,} boops{tag}\n  _{item['desc']}_")
             embed.add_field(name=label, value="\n".join(lines), inline=False)
         embed.set_footer(text="!buy <item> [qty]  ·  !equip <item>  ·  !inv to see your gear")
         await ctx.send(embed=embed)
@@ -712,17 +717,23 @@ class FishingCog(commands.Cog, name="Fishing"):
         discord_id = str(ctx.author.id)
         profile    = await utils.get_fishing_profile(discord_id)
         inv        = await utils.get_inventory(discord_id)
+        boops      = await utils.get_boops(discord_id)
+        records    = await utils.get_fish_records(discord_id)
 
         def item_name(iid):
             if iid == "rod_starter": return "Starter Rod"
             return SHOP_ITEMS.get(iid, {}).get("name", iid) if iid else "None"
 
-        gs = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
+        gs           = _gear_score(profile["active_rod"], profile["active_float"], profile.get("active_bait"))
+        total_species = len([f for f in FISH_LOOT if f[0] > 0])
+        caught_species = len(records)
         lines = [
+            f"💰 **Boops:** {boops:,}",
             f"🎣 **Rod:**   {item_name(profile['active_rod'])}",
             f"🪝 **Float:** {item_name(profile['active_float']) if profile['active_float'] else 'None'}",
             f"🪱 **Bait:**  {item_name(profile['active_bait'])  if profile['active_bait']  else 'None'}",
             f"⚙️ **Fishing GS:** {gs}",
+            f"📖 **Species caught:** {caught_species} / {total_species}",
             "", "**Owned:**",
         ]
         equipped  = {profile["active_rod"], profile["active_float"], profile["active_bait"]}
