@@ -436,7 +436,7 @@ class FishingCog(commands.Cog, name="Fishing"):
 
         try:
             await ctx.message.delete()
-        except discord.Forbidden:
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
             pass
 
         # ── Fish Whisperer mode: instant forced-tier catch ─────────────────────
