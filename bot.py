@@ -13,6 +13,7 @@ CHATBOT_CONTEXT_FILE = os.getenv("CHATBOT_CONTEXT_FILE", "chatbot_context.txt")
 
 _COGS = [
     "cogs.events",
+    "cogs.recurring",
     "cogs.gear",
     "cogs.quotes",
     "cogs.fun",
