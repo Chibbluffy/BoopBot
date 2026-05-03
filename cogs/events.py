@@ -613,10 +613,13 @@ class EventsCog(commands.Cog, name="Events"):
         self._listen_conn: asyncpg.Connection | None = None
         self.event_reminder.start()
         self.new_embed_poller.start()
+        self._close_tasks: dict[str, asyncio.Task] = {}
 
     def cog_unload(self):
         self.event_reminder.cancel()
         self.new_embed_poller.cancel()
+        for task in self._close_tasks.values():
+            task.cancel()
         if self._listen_conn:
             import asyncio
             asyncio.ensure_future(self._listen_conn.close())
@@ -630,10 +633,11 @@ class EventsCog(commands.Cog, name="Events"):
         asyncio.ensure_future(self._start_listener())
 
     async def _restore_views(self):
-        """Re-register persistent views for all active events so buttons survive restarts."""
+        """Re-register persistent views and schedule auto-close tasks on startup."""
         import json as _json
         rows = await utils.pool.fetch("""
             SELECT e.id, e.status, e.message_id,
+                   e.event_date, e.event_time, e.event_timezone,
                 json_agg(
                     json_build_object('id', er.id, 'name', er.name, 'emoji', er.emoji,
                                       'soft_cap', er.soft_cap, 'display_order', er.display_order)
@@ -657,6 +661,7 @@ class EventsCog(commands.Cog, name="Events"):
                     EventSignupView(event_id, roles, status=str(row["status"])),
                     message_id=message_id,
                 )
+                self._schedule_close(dict(row))
                 count += 1
             except Exception as e:
                 print(f"[events] failed to restore view for event {row.get('id')}: {e}")
@@ -722,6 +727,54 @@ class EventsCog(commands.Cog, name="Events"):
     async def before_event_reminder(self):
         await self.bot.wait_until_ready()
 
+    # ── Auto-close via asyncio tasks ─────────────────────────────────────────
+
+    def _schedule_close(self, event: dict):
+        """Schedule (or cancel) an exact-time close task for an event."""
+        event_id = str(event['id'])
+        existing = self._close_tasks.pop(event_id, None)
+        if existing and not existing.done():
+            existing.cancel()
+
+        if event.get('status') != 'active':
+            return
+        if not event.get('event_date') or not event.get('event_time'):
+            return
+
+        try:
+            tz_str   = event.get('event_timezone') or 'UTC'
+            date_s   = str(event['event_date'])[:10]
+            time_s   = str(event['event_time'])[:5]
+            dt_naive = datetime.strptime(f"{date_s} {time_s}", "%Y-%m-%d %H:%M")
+            start_dt = dt_naive.replace(tzinfo=ZoneInfo(tz_str))
+            delay    = (start_dt - datetime.now(timezone.utc)).total_seconds()
+        except Exception as e:
+            print(f"[events] could not compute close time for {event_id}: {e}")
+            return
+
+        self._close_tasks[event_id] = asyncio.create_task(self._close_after(event_id, delay))
+
+    async def _close_after(self, event_id: str, delay: float):
+        try:
+            if delay > 0:
+                print(f"[events] auto-close scheduled for {event_id} in {delay/3600:.2f}h")
+                await asyncio.sleep(delay)
+            row = await utils.pool.fetchrow(
+                "SELECT status FROM events WHERE id = $1", event_id
+            )
+            if not row or row['status'] != 'active':
+                return
+            await utils.pool.execute(
+                "UPDATE events SET status = 'closed', updated_at = NOW() WHERE id = $1",
+                event_id,
+            )
+            await utils.pool.execute("SELECT pg_notify('event_updated', $1)", event_id)
+            print(f"[events] auto-closed event {event_id}")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"[events] auto-close error for {event_id}: {e}")
+
     # ── LISTEN/NOTIFY handler ─────────────────────────────────────────────────
 
     async def _start_listener(self):
@@ -755,6 +808,7 @@ class EventsCog(commands.Cog, name="Events"):
             if not event.get("message_id"):
                 # Not yet posted — post it now
                 await self._post_signup_embed(event)
+                self._schedule_close(event)
                 return
 
             channel_obj = self.bot.get_channel(int(event["channel_id"]))
@@ -765,6 +819,7 @@ class EventsCog(commands.Cog, name="Events"):
             embed = await build_event_embed(event, roles, signups, emojis)
             view  = EventSignupView(event_id, roles, status=event.get("status", "active"))
             await msg.edit(embed=embed, view=view)
+            self._schedule_close(event)
         except Exception as e:
             print(f"[events] notify handler error for {event_id}: {e}")
 
