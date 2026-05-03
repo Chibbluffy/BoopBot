@@ -531,10 +531,6 @@ class FishingCog(commands.Cog, name="Fishing"):
                 ("🎣 Pull!",       discord.ButtonStyle.primary,  "✅🟡⬛  **Round 2 / 3**\n\nIt's slowing down — **pull with everything you've got!**"),
                 ("🏆 Reel It In!", discord.ButtonStyle.danger,   "✅✅🟡  **Round 3 / 3**\n\n**NOW! REEL IT IN!**"),
             ]
-            _WAIT_MSGS = [
-                "✅⬛⬛  You're holding on...\n\n*It's tiring out — get ready...*",
-                "✅✅⬛  Almost there...\n\n*One final push — stay focused...*",
-            ]
             _FAIL_MSGS = [
                 "💨 It **snapped the line** and escaped into the deep...",
                 "😮 You **lost your grip!** It slipped away!",
@@ -546,18 +542,13 @@ class FishingCog(commands.Cog, name="Fishing"):
 
             for i, (btn_label, btn_style, fight_msg) in enumerate(_ROUNDS):
                 embed.description = f"⚠️ **LEGENDARY FISH ON THE LINE!**\n\n{fight_msg}"
-                view = FishingView(ctx.author.id, timeout=5, label=btn_label, style=btn_style)
+                view = FishingView(ctx.author.id, timeout=3, label=btn_label, style=btn_style)
                 await cast_msg.edit(embed=embed, view=view)
                 timed_out = await view.wait()
 
                 if timed_out or not view.clicked:
                     fail_msg = _FAIL_MSGS[i]
                     break
-
-                if i < len(_ROUNDS) - 1:
-                    embed.description = f"⚠️ **LEGENDARY FISH ON THE LINE!**\n\n{_WAIT_MSGS[i]}"
-                    await cast_msg.edit(embed=embed, view=discord.ui.View())
-                    await asyncio.sleep(random.uniform(3, 7))
 
             try:
                 await cast_msg.delete()
