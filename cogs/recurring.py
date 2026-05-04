@@ -29,8 +29,7 @@ class RecurringCog(commands.Cog, name="Recurring"):
         today = datetime.now(timezone.utc).date()
         rows = await utils.pool.fetch("""
             SELECT * FROM recurring_events
-            WHERE (cancelled_after IS NULL OR cancelled_after >= $1)
-              AND (end_date IS NULL OR end_date >= $1)
+            WHERE (end_date IS NULL OR end_date >= $1)
         """, today)
         for row in rows:
             self._schedule_series(dict(row))
@@ -65,9 +64,8 @@ class RecurringCog(commands.Cog, name="Recurring"):
                     return v
                 return date.fromisoformat(str(v)[:10])
 
-            end_date        = _to_date(series.get('end_date'))
-            cancelled_after = _to_date(series.get('cancelled_after'))
-            start_date      = _to_date(series.get('start_date'))
+            end_date   = _to_date(series.get('end_date'))
+            start_date = _to_date(series.get('start_date'))
 
             skip_dates = set()
             for sd in (series.get('skip_dates') or []):
@@ -90,8 +88,6 @@ class RecurringCog(commands.Cog, name="Recurring"):
                 candidate = (candidate + timedelta(days=1)).replace(hour=h, minute=m, second=0, microsecond=0)
                 continue
             if end_date and d > end_date:
-                return None
-            if cancelled_after and d > cancelled_after:
                 return None
             if candidate.weekday() in weekdays and d not in skip_dates:
                 return candidate.astimezone(timezone.utc)
@@ -146,7 +142,7 @@ class RecurringCog(commands.Cog, name="Recurring"):
 
                 # Re-check validity after sleep (series may have been edited)
                 row2 = await utils.pool.fetchrow(
-                    "SELECT end_date, cancelled_after, skip_dates FROM recurring_events WHERE id = $1",
+                    "SELECT end_date, skip_dates FROM recurring_events WHERE id = $1",
                     sid,
                 )
                 if not row2:
@@ -155,11 +151,8 @@ class RecurringCog(commands.Cog, name="Recurring"):
                     if v is None: return None
                     if isinstance(v, date): return v
                     return date.fromisoformat(str(v)[:10])
-                end_date        = _to_date(row2['end_date'])
-                cancelled_after = _to_date(row2['cancelled_after'])
+                end_date = _to_date(row2['end_date'])
                 if end_date and occurrence_date > end_date:
-                    return
-                if cancelled_after and occurrence_date > cancelled_after:
                     return
                 skip_dates = set(_to_date(d) for d in (row2['skip_dates'] or []))
                 if occurrence_date in skip_dates:
@@ -266,9 +259,8 @@ class RecurringCog(commands.Cog, name="Recurring"):
                 if v is None: return None
                 if isinstance(v, date): return v
                 return date.fromisoformat(str(v)[:10])
-            end_date        = _to_date(row.get('end_date'))
-            cancelled_after = _to_date(row.get('cancelled_after'))
-            if (end_date and end_date < today) or (cancelled_after and cancelled_after < today):
+            end_date = _to_date(row.get('end_date'))
+            if end_date and end_date < today:
                 self._cancel_series_task(sid)
                 print(f"[recurring] series {sid} ended, task cancelled")
                 return

@@ -101,6 +101,18 @@ class QuotesCog(commands.Cog, name="Quotes"):
         quote = random.choice(rows)
         await ctx.reply(f"`{quote['nadeko_id']}` 📣 {quote['text']}")
 
+    @commands.command(name="quoteget", aliases=["qg"])
+    async def quoteget(self, ctx, quote_id: str):
+        """Prints a quote by ID. Usage: !quoteget <id>"""
+        row = await utils.pool.fetchrow(
+            "SELECT nadeko_id, text FROM quotes WHERE nadeko_id = $1",
+            quote_id.lower()
+        )
+        if not row:
+            await ctx.send(f"Quote `{quote_id}` not found.")
+            return
+        await ctx.reply(f"`{row['nadeko_id']}` 📣 {row['text']}")
+
     @commands.command(name="quoteshow", aliases=["qshow"])
     async def quoteshow(self, ctx, quote_id: str):
         """Shows full details of a quote by ID. Usage: !quoteshow <id>"""
