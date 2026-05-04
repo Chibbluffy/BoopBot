@@ -758,7 +758,9 @@ class EventsCog(commands.Cog, name="Events"):
                             FROM calendar_events ce
                             LEFT JOIN calendar_event_interests cei ON cei.event_id = ce.id
                             LEFT JOIN users u ON u.id = cei.user_id
+                            LEFT JOIN events ev ON ev.calendar_event_id = ce.id
                             WHERE ce.event_time IS NOT NULL AND ce.event_timezone IS NOT NULL
+                              AND (ev.id IS NULL OR ev.enable_reminder_ping = TRUE)
                             GROUP BY ce.id, ce.title
                             HAVING (ce.event_date + ce.event_time) AT TIME ZONE ce.event_timezone BETWEEN $1 AND $2
                         """, window_start, window_end)

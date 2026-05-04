@@ -188,8 +188,8 @@ class RecurringCog(commands.Cog, name="Recurring"):
                 INSERT INTO events
                   (title, description, event_date, event_time, event_timezone,
                    total_cap, channel_id, status, recurring_id, created_by,
-                   ping_role_ids, enable_ping)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11)
+                   ping_role_ids, enable_ping, enable_reminder_ping)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11, $12)
                 RETURNING *
             """,
                 title,
@@ -203,6 +203,7 @@ class RecurringCog(commands.Cog, name="Recurring"):
                 series.get('created_by'),
                 series.get('ping_role_ids') or [],
                 series.get('enable_ping', True),
+                series.get('enable_reminder_ping', True),
             )
             event_id = str(event_row['id'])
 
