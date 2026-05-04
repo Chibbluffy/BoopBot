@@ -542,7 +542,7 @@ class FishingCog(commands.Cog, name="Fishing"):
 
             for i, (btn_label, btn_style, fight_msg) in enumerate(_ROUNDS):
                 embed.description = f"⚠️ **LEGENDARY FISH ON THE LINE!**\n\n{fight_msg}"
-                view = FishingView(ctx.author.id, timeout=3, label=btn_label, style=btn_style)
+                view = FishingView(ctx.author.id, timeout=5, label=btn_label, style=btn_style)
                 await cast_msg.edit(embed=embed, view=view)
                 timed_out = await view.wait()
 
