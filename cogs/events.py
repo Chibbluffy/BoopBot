@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 import asyncpg, os
 import utils
 
+WEBSITE_URL = os.getenv("WEBSITE_URL", "https://boop.fish")
+
 _ALL_CLASSES = sorted([
     "Warrior", "Sorceress", "Ranger", "Berserker", "Tamer",
     "Musa", "Maehwa", "Valkyrie", "Kunoichi", "Ninja",
@@ -256,10 +258,16 @@ async def _try_promote_bench(event_id: str, role_id, conn) -> None:
         await conn.execute(
             "UPDATE event_signups SET status = 'accepted' WHERE id = $1", bench["id"]
         )
+        promoted = await conn.fetchrow(
+            "SELECT discord_id, role_name FROM event_signups WHERE id = $1", bench["id"]
+        )
+        return dict(promoted) if promoted else None
+    return None
 
 
 async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
                          role_id, role_name, bdo_class, status: str):
+    promoted_signup = None
     async with utils.pool.acquire() as conn:
         async with conn.transaction():
             # Lock the event row to serialize concurrent signups
@@ -314,7 +322,7 @@ async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
                 )
                 # Freed an accepted slot in the old role — try to promote from bench
                 if role_changed and existing["old_status"] == "accepted":
-                    await _try_promote_bench(event_id, existing["role_id"], conn)
+                    promoted_signup = await _try_promote_bench(event_id, existing["role_id"], conn)
             else:
                 row = await conn.fetchrow(
                     "SELECT COALESCE(MAX(signup_order), 0) + 1 AS next_order FROM event_signups WHERE event_id = $1",
@@ -328,7 +336,17 @@ async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
                 )
             await conn.execute("UPDATE events SET updated_at = NOW() WHERE id = $1", event_id)
     await _sync_calendar_interest(event_id, discord_id, add=(status != "absent"))
-    return status
+    bench_position = None
+    if status == "bench":
+        bench_position = await utils.pool.fetchval(
+            """SELECT COUNT(*)::int FROM event_signups
+               WHERE event_id = $1 AND status = 'bench'
+               AND signup_order <= (
+                   SELECT signup_order FROM event_signups WHERE event_id = $1 AND discord_id = $2
+               )""",
+            event_id, discord_id,
+        )
+    return status, bench_position, promoted_signup
 
 
 async def _is_event_open(event_id: str) -> tuple[bool, str]:
@@ -407,14 +425,36 @@ class ClassSelectView(discord.ui.View):
 
 async def _finish_signup(interaction: discord.Interaction, event_id: str, role_id, role_name: str, bdo_class: str):
     try:
-        resolved = await _upsert_signup(
+        resolved, bench_pos, promoted = await _upsert_signup(
             event_id, str(interaction.user.id), interaction.user.display_name,
             role_id, role_name, bdo_class, "accepted",
         )
         if resolved == "bench":
             msg = f"🪑 Added to **bench** as **{bdo_class}** for **{role_name}** — the role or event is full."
+            pos_str = f" You're **#{bench_pos} on the bench**." if bench_pos else ""
+            try:
+                dm_user = await interaction.client.fetch_user(int(str(interaction.user.id)))
+                await dm_user.send(
+                    f"🪑 You've been added to the bench for **{event.get('title', 'an event') if (event := await fetch_event(event_id)) else 'an event'}**.\n"
+                    f"The **{role_name}** role or event is at capacity.{pos_str}\n"
+                    f"If someone withdraws, you may be automatically promoted.\n"
+                    f"{WEBSITE_URL}/#/calendar?tab=events&event={event_id}"
+                )
+            except Exception:
+                pass
         else:
             msg = f"✅ Signed up as **{bdo_class}** for **{role_name}**!"
+        if promoted:
+            try:
+                dm_promoted = await interaction.client.fetch_user(int(promoted["discord_id"]))
+                ev_title = (await fetch_event(event_id) or {}).get("title", "an event")
+                await dm_promoted.send(
+                    f"✅ A spot opened up for **{ev_title}**!\n"
+                    f"You've been moved from the bench to **{promoted.get('role_name') or 'an available role'}**.\n"
+                    f"{WEBSITE_URL}/#/calendar?tab=events&event={event_id}"
+                )
+            except Exception:
+                pass
         await interaction.response.edit_message(content=msg, view=None)
         event = await fetch_event(event_id)
         if event and event.get("message_id") and event.get("channel_id"):
@@ -443,50 +483,54 @@ class EventSignupView(discord.ui.View):
         self.event_id = event_id
 
         if status != "active":
-            # Replace all buttons with a single disabled indicator
             self.add_item(discord.ui.Button(
                 label="🔒 Signups Closed",
                 style=discord.ButtonStyle.secondary,
                 custom_id=f"closed_info:{event_id}",
                 disabled=True,
             ))
-            return
+        else:
+            for role in roles:
+                cap   = role.get("soft_cap")
+                label = role["name"] + (f" ({cap})" if cap else "")
+                btn   = discord.ui.Button(
+                    label=label,
+                    style=discord.ButtonStyle.primary,
+                    custom_id=f"signup:{event_id}:{role['id']}",
+                    emoji=role.get("emoji") or None,
+                )
+                btn.callback = self._make_signup_cb(role["id"], role["name"])
+                self.add_item(btn)
 
-        for role in roles:
-            cap   = role.get("soft_cap")
-            label = role["name"] + (f" ({cap})" if cap else "")
-            btn   = discord.ui.Button(
-                label=label,
-                style=discord.ButtonStyle.primary,
-                custom_id=f"signup:{event_id}:{role['id']}",
-                emoji=role.get("emoji") or None,
+            for label, status, emoji_str, cid_prefix in [
+                ("Tentative", "tentative", "❓", "tentative"),
+            ]:
+                btn = discord.ui.Button(
+                    label=label, style=discord.ButtonStyle.secondary,
+                    custom_id=f"{cid_prefix}:{event_id}", emoji=emoji_str,
+                )
+                btn.callback = self._make_status_cb(status)
+                self.add_item(btn)
+
+            withdraw_btn = discord.ui.Button(
+                label="Withdraw", style=discord.ButtonStyle.danger,
+                custom_id=f"withdraw:{event_id}",
             )
-            btn.callback = self._make_signup_cb(role["id"], role["name"])
-            self.add_item(btn)
+            withdraw_btn.callback = self._withdraw_cb
+            self.add_item(withdraw_btn)
 
-        for label, status, emoji_str, cid_prefix in [
-            ("Tentative", "tentative", "❓", "tentative"),
-        ]:
-            btn = discord.ui.Button(
-                label=label, style=discord.ButtonStyle.secondary,
-                custom_id=f"{cid_prefix}:{event_id}", emoji=emoji_str,
+            close_btn = discord.ui.Button(
+                label="Close Signups", style=discord.ButtonStyle.secondary,
+                custom_id=f"close_signups:{event_id}", emoji="🔒",
             )
-            btn.callback = self._make_status_cb(status)
-            self.add_item(btn)
+            close_btn.callback = self._close_signups_cb
+            self.add_item(close_btn)
 
-        withdraw_btn = discord.ui.Button(
-            label="Withdraw", style=discord.ButtonStyle.danger,
-            custom_id=f"withdraw:{event_id}",
-        )
-        withdraw_btn.callback = self._withdraw_cb
-        self.add_item(withdraw_btn)
-
-        close_btn = discord.ui.Button(
-            label="Close Signups", style=discord.ButtonStyle.secondary,
-            custom_id=f"close_signups:{event_id}", emoji="🔒",
-        )
-        close_btn.callback = self._close_signups_cb
-        self.add_item(close_btn)
+        self.add_item(discord.ui.Button(
+            label="View on Website",
+            style=discord.ButtonStyle.link,
+            url=f"{WEBSITE_URL}/#/calendar?tab=events&event={event_id}",
+        ))
 
     def _make_signup_cb(self, role_id, role_name: str):
         async def callback(interaction: discord.Interaction):
@@ -578,9 +622,21 @@ class EventSignupView(discord.ui.View):
                         self.event_id, str(interaction.user.id),
                     )
                     await conn.execute("UPDATE events SET updated_at = NOW() WHERE id = $1", self.event_id)
+                    promoted_from_bench = None
                     if old and old["status"] == "accepted":
-                        await _try_promote_bench(self.event_id, old["role_id"], conn)
+                        promoted_from_bench = await _try_promote_bench(self.event_id, old["role_id"], conn)
             await _sync_calendar_interest(self.event_id, str(interaction.user.id), add=False)
+            if promoted_from_bench:
+                try:
+                    ev_title = (await fetch_event(self.event_id) or {}).get("title", "an event")
+                    dm_user = await interaction.client.fetch_user(int(promoted_from_bench["discord_id"]))
+                    await dm_user.send(
+                        f"✅ A spot opened up for **{ev_title}**!\n"
+                        f"You've been moved from the bench to **{promoted_from_bench.get('role_name') or 'an available role'}**.\n"
+                        f"{WEBSITE_URL}/#/calendar?tab=events&event={self.event_id}"
+                    )
+                except Exception:
+                    pass
             await interaction.followup.send("Withdrawn from event.", ephemeral=True)
             msg = await self._fetch_embed_msg(interaction.client)
             await _refresh_embed(msg, self.event_id)
@@ -783,7 +839,8 @@ class EventsCog(commands.Cog, name="Events"):
         while True:
             try:
                 self._listen_conn = await asyncpg.connect(os.getenv("DATABASE_URL"))
-                await self._listen_conn.add_listener("event_updated", self._on_event_notify)
+                await self._listen_conn.add_listener("event_updated",  self._on_event_notify)
+                await self._listen_conn.add_listener("signup_changed", self._on_signup_notify)
                 print("[events] LISTEN connection established")
                 # asyncpg Connection has no wait_closed() — poll is_closed() instead
                 while not self._listen_conn.is_closed():
@@ -795,6 +852,35 @@ class EventsCog(commands.Cog, name="Events"):
                 if self._listen_conn and not self._listen_conn.is_closed():
                     await self._listen_conn.close()
             await asyncio.sleep(5)
+
+    async def _on_signup_notify(self, conn, pid, channel, payload: str):
+        try:
+            import json as _json
+            data = _json.loads(payload)
+            discord_id = data.get("discord_id")
+            if not discord_id:
+                return
+            event_id    = data.get("event_id", "")
+            event_title = data.get("event_title", "an event")
+            old_status  = data.get("old_status")
+            new_status  = data.get("new_status")
+            old_role    = data.get("old_role")
+            new_role    = data.get("new_role")
+
+            lines = [f"📋 Your signup for **{event_title}** was updated by an officer."]
+            if old_status != new_status and new_status:
+                lines.append(f"Status: **{old_status or '—'}** → **{new_status}**")
+            if old_role != new_role:
+                lines.append(f"Role: **{old_role or 'None'}** → **{new_role or 'None'}**")
+            lines.append(f"{WEBSITE_URL}/#/calendar?tab=events&event={event_id}")
+
+            try:
+                user_obj = await self.bot.fetch_user(int(discord_id))
+                await user_obj.send("\n".join(lines))
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"[events] signup_changed notify error: {e}")
 
     async def _on_event_notify(self, conn, pid, channel, event_id: str):
         try:
@@ -860,7 +946,12 @@ class EventsCog(commands.Cog, name="Events"):
         embed   = await build_event_embed(event, roles, signups, emojis)
         view    = EventSignupView(event_id, roles, status=event.get("status", "active"))
 
-        msg = await channel.send(embed=embed, view=view)
+        content = None
+        if event.get("enable_ping", True) and event.get("ping_role_ids"):
+            mentions = " ".join(f"<@&{rid}>" for rid in event["ping_role_ids"] if rid)
+            if mentions:
+                content = mentions
+        msg = await channel.send(content=content, embed=embed, view=view)
 
         await utils.pool.execute(
             "UPDATE events SET message_id = $1, updated_at = NOW() WHERE id = $2",

@@ -187,8 +187,9 @@ class RecurringCog(commands.Cog, name="Recurring"):
             event_row = await utils.pool.fetchrow("""
                 INSERT INTO events
                   (title, description, event_date, event_time, event_timezone,
-                   total_cap, channel_id, status, recurring_id, created_by)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9)
+                   total_cap, channel_id, status, recurring_id, created_by,
+                   ping_role_ids, enable_ping)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11)
                 RETURNING *
             """,
                 title,
@@ -196,10 +197,12 @@ class RecurringCog(commands.Cog, name="Recurring"):
                 occurrence_date,
                 time_s,
                 tz_str,
-                int(series.get('total_cap') or 25),
+                int(series['total_cap']) if series.get('total_cap') is not None else None,
                 series.get('channel_id'),
                 sid,
                 series.get('created_by'),
+                series.get('ping_role_ids') or [],
+                series.get('enable_ping', True),
             )
             event_id = str(event_row['id'])
 
