@@ -176,7 +176,7 @@ class RecurringCog(commands.Cog, name="Recurring"):
         raw_from_db = series.get('roles')
         print(f"[recurring] series {sid}: roles from DB type={type(raw_from_db).__name__} value={repr(raw_from_db)[:200]}")
         roles_raw = raw_from_db or []
-        if isinstance(roles_raw, str):
+        while isinstance(roles_raw, str):
             roles_raw = _json.loads(roles_raw)
         # Normalize: each element must be a dict (double-encoded JSONB yields strings)
         normalized = []
