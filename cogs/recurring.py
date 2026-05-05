@@ -178,53 +178,57 @@ class RecurringCog(commands.Cog, name="Recurring"):
             roles_raw = _json.loads(roles_raw)
 
         try:
-            event_row = await utils.pool.fetchrow("""
-                INSERT INTO events
-                  (title, description, event_date, event_time, event_timezone,
-                   total_cap, channel_id, status, recurring_id, created_by,
-                   ping_role_ids, enable_ping, enable_reminder_ping)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11, $12)
-                RETURNING *
-            """,
-                title,
-                series.get('description'),
-                occurrence_date,
-                event_time_obj,
-                tz_str,
-                int(series['total_cap']) if series.get('total_cap') is not None else None,
-                series.get('channel_id'),
-                sid,
-                series.get('created_by'),
-                series.get('ping_role_ids') or [],
-                series.get('enable_ping', True),
-                series.get('enable_reminder_ping', True),
-            )
-            event_id = str(event_row['id'])
+            async with utils.pool.acquire() as conn:
+                async with conn.transaction():
+                    event_row = await conn.fetchrow("""
+                        INSERT INTO events
+                          (title, description, event_date, event_time, event_timezone,
+                           total_cap, channel_id, status, recurring_id, created_by,
+                           ping_role_ids, enable_ping, enable_reminder_ping)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11, $12)
+                        RETURNING *
+                    """,
+                        title,
+                        series.get('description'),
+                        occurrence_date,
+                        event_time_obj,
+                        tz_str,
+                        int(series['total_cap']) if series.get('total_cap') is not None else None,
+                        series.get('channel_id'),
+                        sid,
+                        series.get('created_by'),
+                        series.get('ping_role_ids') or [],
+                        series.get('enable_ping', True),
+                        series.get('enable_reminder_ping', True),
+                    )
+                    event_id = str(event_row['id'])
 
-            for i, r in enumerate(roles_raw):
-                if not r.get('name'):
-                    continue
-                await utils.pool.execute("""
-                    INSERT INTO event_roles (event_id, name, emoji, soft_cap, display_order)
-                    VALUES ($1, $2, $3, $4, $5)
-                """, event_id, r['name'], r.get('emoji'), r.get('soft_cap'), i)
+                    for i, r in enumerate(roles_raw):
+                        if not r.get('name'):
+                            continue
+                        sc = r.get('soft_cap')
+                        await conn.execute("""
+                            INSERT INTO event_roles (event_id, name, emoji, soft_cap, display_order)
+                            VALUES ($1, $2, $3, $4, $5)
+                        """, event_id, r['name'], r.get('emoji'), int(sc) if sc is not None else None, i)
 
-            cal = await utils.pool.fetchrow("""
-                INSERT INTO calendar_events
-                  (title, description, event_date, event_time, event_timezone, created_by)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING id
-            """, title, series.get('description'), occurrence_date, event_time_obj, tz_str, series.get('created_by'))
-            await utils.pool.execute(
-                "UPDATE events SET calendar_event_id = $1 WHERE id = $2",
-                cal['id'], event_id,
-            )
+                    cal = await conn.fetchrow("""
+                        INSERT INTO calendar_events
+                          (title, description, event_date, event_time, event_timezone, created_by)
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                        RETURNING id
+                    """, title, series.get('description'), occurrence_date, event_time_obj, tz_str, series.get('created_by'))
+                    await conn.execute(
+                        "UPDATE events SET calendar_event_id = $1 WHERE id = $2",
+                        cal['id'], event_id,
+                    )
 
             await utils.pool.execute("SELECT pg_notify('event_updated', $1)", event_id)
             print(f"[recurring] created event {event_id} for series {sid} on {occurrence_date}")
 
         except Exception as e:
             print(f"[recurring] failed to create occurrence for {sid}: {e}")
+            import traceback; traceback.print_exc()
 
     # ── pg_notify listener ────────────────────────────────────────────────────
 
