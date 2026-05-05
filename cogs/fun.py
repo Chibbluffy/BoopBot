@@ -34,6 +34,8 @@ class FunCog(commands.Cog, name="Fun"):
             return
         if not self.bot.user.mentioned_in(message):
             return
+        if message.content.startswith(self.bot.command_prefix):
+            return
         content = message.content.replace(f'<@{self.bot.user.id}>', '').strip()
         if not content:
             return

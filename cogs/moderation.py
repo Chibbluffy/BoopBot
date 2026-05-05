@@ -10,13 +10,13 @@ class ModerationCog(commands.Cog, name="Moderation"):
         """Prune messages. Usage: !prune [user] [count]
 
         !prune           — delete this command + the message before it
-        !prune 50        — delete last 50 messages
+        !prune 50        — delete last 50 messages (including the command)
         !prune @user     — delete user's messages in last 100
         !prune @user 50  — delete last 50 messages from user"""
         member = ctx.message.mentions[0] if ctx.message.mentions else None
         count  = next((min(int(a), 1000) for a in args if a.isdigit()), None)
 
-        # Base !prune: delete command + one message before it
+        # Base !prune with no args: delete command + one message before it
         if member is None and count is None:
             msgs = [ctx.message]
             async for msg in ctx.channel.history(limit=1, before=ctx.message):
@@ -24,7 +24,7 @@ class ModerationCog(commands.Cog, name="Moderation"):
             await ctx.channel.delete_messages(msgs)
             return
 
-        # All other variants: delete command message, then purge
+        # Delete the command message itself first
         try:
             await ctx.message.delete()
         except discord.Forbidden:
@@ -32,13 +32,27 @@ class ModerationCog(commands.Cog, name="Moderation"):
 
         limit = count if count else 100
 
+        # Show a progress embed while purging
+        embed = discord.Embed(
+            description=f"🗑️ Pruning messages{f' from {member.display_name}' if member else ''}…",
+            color=discord.Color.orange(),
+        )
+        status_msg = await ctx.send(embed=embed)
+
         def check(msg: discord.Message) -> bool:
+            if msg.id == status_msg.id:
+                return False
             if member:
                 return msg.author.id == member.id
             return True
 
         deleted = await ctx.channel.purge(limit=limit, check=check, bulk=True)
-        await ctx.send(f"🗑️ Deleted **{len(deleted)}** message(s).", delete_after=5)
+
+        done_embed = discord.Embed(
+            description=f"🗑️ Deleted **{len(deleted)}** message(s){f' from {member.display_name}' if member else ''}.",
+            color=discord.Color.green(),
+        )
+        await status_msg.edit(embed=done_embed, delete_after=5)
 
     @prune.error
     async def prune_error(self, ctx, error):
