@@ -213,7 +213,7 @@ def _fmt_range(min_kg: float, max_kg: float) -> str:
     return f"{min_kg}–{max_kg} kg"
 
 _MYSTICAL_MAX       = 5
-_MYSTICAL_CHANCE    = 0.001   # 0.1% per cast at GS 20
+_MYSTICAL_CHANCES   = [0.001, 0.0009, 0.0008, 0.0007, 0.0005]  # per-catch chances: 0.1% → 0.05%
 _ANSI_MYSTICAL      = "\u001b[1;36m"  # bold cyan
 _TIER_NAMES         = ["Junk", "Common", "Uncommon", "Rare", "Ultra Rare", "Legendary"]
 
@@ -443,9 +443,6 @@ class FishingCog(commands.Cog, name="Fishing"):
         if mystical_active > 0:
             fish_name, value, tier, size_kg = _roll_forced_tier(mystical_active)
 
-            if profile["active_bait"]:
-                await utils.use_bait(discord_id, profile["active_bait"])
-
             new_bal = await utils.add_boops(discord_id, value, ctx.author.name)
             is_pb   = False
             if tier > 0:
@@ -487,8 +484,10 @@ class FishingCog(commands.Cog, name="Fishing"):
 
         await asyncio.sleep(random.uniform(2, 5))
 
-        # Mystical fish check — GS 20 only, 0.1% chance
-        if score >= 10 and random.random() < _MYSTICAL_CHANCE:
+        # Mystical fish check — requires GS 10+, chance decreases with each one caught
+        _mystical_count_now = inv.get("mystical_fish", 0)
+        _mystical_chance    = _MYSTICAL_CHANCES[min(_mystical_count_now, len(_MYSTICAL_CHANCES) - 1)]
+        if score >= 10 and random.random() < _mystical_chance:
             try:
                 await cast_msg.delete()
             except discord.NotFound:
