@@ -24,35 +24,32 @@ class ModerationCog(commands.Cog, name="Moderation"):
             await ctx.channel.delete_messages(msgs)
             return
 
-        # Delete the command message itself first
-        try:
-            await ctx.message.delete()
-        except discord.Forbidden:
-            pass
-
         limit = count if count else 100
 
         # Show a progress embed while purging
-        embed = discord.Embed(
-            description=f"🗑️ Pruning messages{f' from {member.display_name}' if member else ''}…",
+        status_msg = await ctx.send(embed=discord.Embed(
+            description=f"🗑️ Pruning **{limit}** message(s){f' from {member.display_name}' if member else ''}…",
             color=discord.Color.orange(),
-        )
-        status_msg = await ctx.send(embed=embed)
+        ))
 
         def check(msg: discord.Message) -> bool:
-            if msg.id == status_msg.id:
-                return False
             if member:
                 return msg.author.id == member.id
             return True
 
-        deleted = await ctx.channel.purge(limit=limit, check=check, bulk=True)
+        # Purge only messages older than the command so the status embed is never in scope
+        deleted = await ctx.channel.purge(limit=limit, before=ctx.message, check=check, bulk=True)
 
-        done_embed = discord.Embed(
+        # Delete the command message itself (not counted in the purge limit)
+        try:
+            await ctx.message.delete()
+        except (discord.Forbidden, discord.NotFound):
+            pass
+
+        await status_msg.edit(embed=discord.Embed(
             description=f"🗑️ Deleted **{len(deleted)}** message(s){f' from {member.display_name}' if member else ''}.",
             color=discord.Color.green(),
-        )
-        await status_msg.edit(embed=done_embed, delete_after=5)
+        ), delete_after=5)
 
     @prune.error
     async def prune_error(self, ctx, error):
