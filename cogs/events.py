@@ -599,7 +599,8 @@ class EventSignupView(discord.ui.View):
                     self.event_id, str(interaction.user.id), interaction.user.display_name,
                     None, None, None, status,
                 )
-                await interaction.followup.send(f"Marked as **{status.capitalize()}**.", ephemeral=True)
+                note = " Changed your mind? Click a role button or **Tentative** to sign up." if status == "declined" else ""
+                await interaction.followup.send(f"Marked as **{status.capitalize()}**.{note}", ephemeral=True)
                 msg = await self._fetch_embed_msg(interaction.client)
                 await _refresh_embed(msg, self.event_id)
             except Exception as e:
