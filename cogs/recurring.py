@@ -117,10 +117,13 @@ class RecurringCog(commands.Cog, name="Recurring"):
                 tz = ZoneInfo(tz_name)
                 occurrence_date = next_event_dt.astimezone(tz).date()
 
+                # Use raw UUID for the duplicate check (avoids text/uuid type mismatch)
+                series_uuid = row['id']
+
                 # Skip if already posted (handles restarts / duplicate protection)
                 existing = await utils.pool.fetchrow(
                     "SELECT id FROM events WHERE recurring_id = $1 AND event_date = $2",
-                    sid, occurrence_date,
+                    series_uuid, occurrence_date,
                 )
                 if existing:
                     next_event_dt = self._compute_next_event_dt(
@@ -158,7 +161,18 @@ class RecurringCog(commands.Cog, name="Recurring"):
                 if occurrence_date in skip_dates:
                     continue  # skip, loop back to find next
 
-                await self._create_occurrence(series, next_event_dt, occurrence_date)
+                # Final duplicate guard (catches races and post-sleep creations)
+                already = await utils.pool.fetchrow(
+                    "SELECT id FROM events WHERE recurring_id = $1 AND event_date = $2",
+                    series_uuid, occurrence_date,
+                )
+                if already:
+                    continue
+
+                ok = await self._create_occurrence(series, next_event_dt, occurrence_date)
+                if not ok:
+                    # Creation failed — sleep before retrying to prevent tight loop
+                    await asyncio.sleep(60)
 
         except asyncio.CancelledError:
             pass
@@ -202,6 +216,7 @@ class RecurringCog(commands.Cog, name="Recurring"):
                            total_cap, channel_id, status, recurring_id, created_by,
                            ping_role_ids, enable_ping, enable_reminder_ping)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11, $12)
+                        ON CONFLICT (recurring_id, event_date) DO NOTHING
                         RETURNING *
                     """,
                         title,
@@ -217,6 +232,10 @@ class RecurringCog(commands.Cog, name="Recurring"):
                         series.get('enable_ping', True),
                         series.get('enable_reminder_ping', True),
                     )
+                    if not event_row:
+                        print(f"[recurring] series {sid}: occurrence {occurrence_date} already exists, skipping")
+                        return None
+
                     event_id = str(event_row['id'])
 
                     roles_inserted = 0
@@ -244,10 +263,12 @@ class RecurringCog(commands.Cog, name="Recurring"):
 
             await utils.pool.execute("SELECT pg_notify('event_updated', $1)", event_id)
             print(f"[recurring] created event {event_id} for series {sid} on {occurrence_date}")
+            return event_id
 
         except Exception as e:
             print(f"[recurring] failed to create occurrence for {sid}: {e}")
             import traceback; traceback.print_exc()
+            return None
 
     # ── pg_notify listener ────────────────────────────────────────────────────
 
