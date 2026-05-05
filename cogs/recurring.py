@@ -1,6 +1,6 @@
 import discord, asyncio, asyncpg, os, json as _json, traceback
 from discord.ext import commands
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, timedelta, timezone, date, time as dt_time
 from zoneinfo import ZoneInfo
 import utils
 
@@ -171,6 +171,7 @@ class RecurringCog(commands.Cog, name="Recurring"):
         title  = series['title']
         tz_str = series.get('event_timezone') or 'UTC'
         time_s = str(series['event_time'])[:5]
+        event_time_obj = dt_time(int(time_s[:2]), int(time_s[3:5]))
 
         roles_raw = series.get('roles') or []
         if isinstance(roles_raw, str):
@@ -188,7 +189,7 @@ class RecurringCog(commands.Cog, name="Recurring"):
                 title,
                 series.get('description'),
                 occurrence_date,
-                time_s,
+                event_time_obj,
                 tz_str,
                 int(series['total_cap']) if series.get('total_cap') is not None else None,
                 series.get('channel_id'),
@@ -213,7 +214,7 @@ class RecurringCog(commands.Cog, name="Recurring"):
                   (title, description, event_date, event_time, event_timezone, created_by)
                 VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING id
-            """, title, series.get('description'), occurrence_date, time_s, tz_str, series.get('created_by'))
+            """, title, series.get('description'), occurrence_date, event_time_obj, tz_str, series.get('created_by'))
             await utils.pool.execute(
                 "UPDATE events SET calendar_event_id = $1 WHERE id = $2",
                 cal['id'], event_id,
