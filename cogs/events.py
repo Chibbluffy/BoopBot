@@ -935,9 +935,10 @@ class EventsCog(commands.Cog, name="Events"):
                   AND e.message_id IS NOT NULL
                   AND e.channel_id IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM event_roles er WHERE er.event_id = e.id)
-                  AND jsonb_array_length(CASE
-                        WHEN jsonb_typeof(r.roles) = 'array' THEN r.roles
-                        ELSE '[]'::jsonb END) > 0
+                  AND (
+                        (jsonb_typeof(r.roles) = 'array' AND jsonb_array_length(r.roles) > 0)
+                        OR jsonb_typeof(r.roles) = 'string'
+                      )
             """)
             for row in roleless:
                 event = dict(row)
@@ -948,6 +949,11 @@ class EventsCog(commands.Cog, name="Events"):
                 if not series_roles:
                     continue
                 raw = series_roles[0]["roles"]
+                if isinstance(raw, str):
+                    try:
+                        import json as _j; raw = _j.loads(raw)
+                    except Exception:
+                        continue
                 if not isinstance(raw, list):
                     continue
                 for i, r in enumerate(raw):
