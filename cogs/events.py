@@ -93,9 +93,20 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
     embed.add_field(name="⏱️ Countdown", value=countdown,                                      inline=True)
     embed.add_field(name="\u200b",       value="\u200b",                                        inline=True)  # fill row so roles start fresh
 
-    # Spacing separator before roles (only if there are roles to show)
     if roles:
-        embed.add_field(name="\u200b", value="─────────────────────", inline=False)
+        embed.add_field(name="\u200b", value="__**─────────────────────**__", inline=False)
+
+    # ── Pre-compute per-role bench positions (sorted by signup_order) ─────────
+    bench_by_role: dict[str, list] = {}
+    for s in bench:
+        rid = str(s.get("role_id") or "")
+        bench_by_role.setdefault(rid, []).append(s)
+    for lst in bench_by_role.values():
+        lst.sort(key=lambda x: x["signup_order"])
+    bench_pos_map: dict[str, int] = {}
+    for lst in bench_by_role.values():
+        for i, s in enumerate(lst, 1):
+            bench_pos_map[s["discord_id"]] = i
 
     # ── Role sections (2-column) ──────────────────────────────────────────────
     by_role: dict[str, list] = {}
@@ -106,13 +117,15 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
     role_ids = {str(r["id"]) for r in roles}
 
     for i, role in enumerate(roles):
-        rid   = str(role["id"])
-        slots = [s for s in by_role.get(rid, []) if s["status"] == "accepted"]
-        cap   = role.get("soft_cap")
-        emoji = class_emojis.get(role["name"], "") or role.get("emoji") or ""
+        rid             = str(role["id"])
+        slots           = [s for s in by_role.get(rid, []) if s["status"] == "accepted"]
+        bench_for_role  = bench_by_role.get(rid, [])
+        cap             = role.get("soft_cap")
+        emoji           = class_emojis.get(role["name"], "") or role.get("emoji") or ""
 
-        header = f"{emoji} {role['name']}" if emoji else role["name"]
-        header += f" ({len(slots)}/{cap})" if cap else f" ({len(slots)})"
+        name_fmt = f"__**{role['name']}**__"
+        header   = f"{emoji} {name_fmt}" if emoji else name_fmt
+        header  += f" ({len(slots)}/{cap})" if cap else f" ({len(slots)})"
 
         lines = []
         for s in slots:
@@ -122,8 +135,15 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
                 if cls_emoji else f"{s['signup_order']} {s['discord_name']}"
             )
 
+        if bench_for_role:
+            lines.append("╌╌╌╌╌╌╌╌╌╌")
+            for s in bench_for_role:
+                pos       = bench_pos_map.get(s["discord_id"], "?")
+                cls_emoji = class_emojis.get(s.get("bdo_class") or "", "")
+                name_str  = f"{cls_emoji} {s['discord_name']}" if cls_emoji else s["discord_name"]
+                lines.append(f"~~{name_str}~~ #{pos}")
+
         embed.add_field(name=header, value="\n".join(lines) or "*empty*", inline=True)
-        # Insert blank spacer after every 2nd role to force a new row
         if i % 2 == 1:
             embed.add_field(name="\u200b", value="\u200b", inline=True)
 
@@ -137,39 +157,16 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
                 f"{cls_emoji} {s['signup_order']} {s['discord_name']}"
                 if cls_emoji else f"{s['signup_order']} {s['discord_name']}"
             )
-        embed.add_field(name=f"📌 No Role ({len(no_role)})", value="\n".join(lines), inline=True)
+        embed.add_field(name=f"📌 __**No Role**__ ({len(no_role)})", value="\n".join(lines), inline=True)
 
-    # ── Bench / Tentative / Absent ────────────────────────────────────────────
-    bench_members     = [s for s in signups if s["status"] == "bench"]
+    # ── Tentative / Declined / Absent ─────────────────────────────────────────
     tentative_members = [s for s in signups if s["status"] == "tentative"]
     declined_members  = [s for s in signups if s["status"] == "declined"]
     absent_members    = [s for s in signups if s["status"] == "absent"]
 
-    if bench_members or tentative_members or declined_members or absent_members:
-        embed.add_field(name="\u200b", value="─────────────────────", inline=False)
+    if tentative_members or declined_members or absent_members:
+        embed.add_field(name="\u200b", value="__**─────────────────────**__", inline=False)
 
-    # Bench — grouped by the role they wanted
-    if bench_members:
-        by_wanted: dict[str, list] = {}
-        for s in bench_members:
-            key = s.get("role_name") or "No Role"
-            by_wanted.setdefault(key, []).append(s)
-
-        for role_name, members in by_wanted.items():
-            parts = []
-            for s in members:
-                cls_emoji = class_emojis.get(s.get("bdo_class") or "", "")
-                parts.append(
-                    f"{cls_emoji} {s['signup_order']} {s['discord_name']}"
-                    if cls_emoji else f"{s['signup_order']} {s['discord_name']}"
-                )
-            embed.add_field(
-                name=f"🪑 Bench — {role_name} ({len(members)})",
-                value=" · ".join(parts),
-                inline=False,
-            )
-
-    # Tentative / Declined / Absent — flat list
     for label, icon, members in [("Tentative", "❓", tentative_members), ("Declined", "❌", declined_members), ("Absent", "🚫", absent_members)]:
         if members:
             parts = []
@@ -180,7 +177,7 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
                     if cls_emoji else f"{s['signup_order']} {s['discord_name']}"
                 )
             embed.add_field(
-                name=f"{icon} {label} ({len(members)})",
+                name=f"{icon} __**{label}**__ ({len(members)})",
                 value=" · ".join(parts),
                 inline=False,
             )
@@ -204,6 +201,20 @@ async def _refresh_embed(message: discord.Message | None, event_id: str):
         await message.edit(embed=embed, view=view)
     except Exception as e:
         print(f"[events] embed refresh failed: {e}")
+
+
+async def _do_embed_refresh(client: discord.Client, event_id: str):
+    try:
+        event = await fetch_event(event_id)
+        if not event or not event.get("message_id") or not event.get("channel_id"):
+            return
+        ch = client.get_channel(int(event["channel_id"]))
+        if ch is None:
+            ch = await client.fetch_channel(int(event["channel_id"]))
+        msg = await ch.fetch_message(int(event["message_id"]))
+        await _refresh_embed(msg, event_id)
+    except Exception as e:
+        print(f"[events] bg embed refresh failed: {e}")
 
 
 async def _sync_calendar_interest(event_id: str, discord_id: str, add: bool):
@@ -342,10 +353,11 @@ async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
         bench_position = await utils.pool.fetchval(
             """SELECT COUNT(*)::int FROM event_signups
                WHERE event_id = $1 AND status = 'bench'
+               AND role_id IS NOT DISTINCT FROM $3
                AND signup_order <= (
                    SELECT signup_order FROM event_signups WHERE event_id = $1 AND discord_id = $2
                )""",
-            event_id, discord_id,
+            event_id, discord_id, role_id,
         )
     return status, bench_position, promoted_signup
 
@@ -541,7 +553,6 @@ class EventSignupView(discord.ui.View):
                 await interaction.response.send_message(f"🔒 {reason}", ephemeral=True)
                 return
 
-            # Validate role still exists
             role_row = await utils.pool.fetchrow(
                 "SELECT id FROM event_roles WHERE id = $1", role_id
             )
@@ -550,6 +561,12 @@ class EventSignupView(discord.ui.View):
                     "⚠️ That role no longer exists. The event may have been updated.", ephemeral=True
                 )
                 return
+
+            # Reserve the spot immediately — no class required yet
+            resolved, bench_pos, promoted = await _upsert_signup(
+                self.event_id, str(interaction.user.id), interaction.user.display_name,
+                role_id, role_name, None, "accepted",
+            )
 
             row = await utils.pool.fetchrow(
                 "SELECT bdo_class, alt_class FROM users WHERE discord_id = $1",
@@ -562,7 +579,13 @@ class EventSignupView(discord.ui.View):
                 if row["alt_class"] and row["alt_class"] != row["bdo_class"]:
                     profile_classes.append(row["alt_class"])
 
-            content = f"Choose your class for **{role_name}**:"
+            if resolved == "bench":
+                pos_str     = f" You're **#{bench_pos}** on the bench for this role." if bench_pos else ""
+                status_note = f"🪑 **{role_name}** is full.{pos_str}\n\n"
+            else:
+                status_note = f"✅ Signed up for **{role_name}**!\n\n"
+
+            content = f"{status_note}Pick your class to show it on the signup (optional):"
             if profile_classes:
                 content += "\n\n**Quick pick** (from your profile) — or use the dropdowns below:"
 
@@ -571,6 +594,20 @@ class EventSignupView(discord.ui.View):
                 view=ClassSelectView(self.event_id, role_id, role_name, profile_classes),
                 ephemeral=True,
             )
+
+            asyncio.create_task(_do_embed_refresh(interaction.client, self.event_id))
+
+            if promoted:
+                try:
+                    ev_title = (await fetch_event(self.event_id) or {}).get("title", "an event")
+                    dm_user  = await interaction.client.fetch_user(int(promoted["discord_id"]))
+                    await dm_user.send(
+                        f"✅ A spot opened up for **{ev_title}**!\n"
+                        f"You've been moved from the bench to **{promoted.get('role_name') or 'an available role'}**.\n"
+                        f"{WEBSITE_URL}/#/calendar?tab=events&event={self.event_id}"
+                    )
+                except Exception:
+                    pass
         return callback
 
     async def _fetch_embed_msg(self, client: discord.Client):
@@ -680,7 +717,6 @@ class EventsCog(commands.Cog, name="Events"):
         for task in self._close_tasks.values():
             task.cancel()
         if self._listen_conn:
-            import asyncio
             asyncio.ensure_future(self._listen_conn.close())
 
     async def cog_load(self):
@@ -688,7 +724,6 @@ class EventsCog(commands.Cog, name="Events"):
         # works before the bot connects, so no need to wait_until_ready.
         await self._restore_views()
         # Listener needs an active gateway connection, so defer it.
-        import asyncio
         asyncio.ensure_future(self._start_listener())
 
     async def _restore_views(self):
@@ -950,11 +985,12 @@ class EventsCog(commands.Cog, name="Events"):
                 if not series_roles:
                     continue
                 raw = series_roles[0]["roles"]
-                if isinstance(raw, str):
+                import json as _j
+                while isinstance(raw, str):
                     try:
-                        import json as _j; raw = _j.loads(raw)
+                        raw = _j.loads(raw)
                     except Exception:
-                        continue
+                        break
                 if not isinstance(raw, list):
                     continue
                 for i, r in enumerate(raw):
