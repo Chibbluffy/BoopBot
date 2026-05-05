@@ -173,7 +173,9 @@ class RecurringCog(commands.Cog, name="Recurring"):
         time_s = str(series['event_time'])[:5]
         event_time_obj = dt_time(int(time_s[:2]), int(time_s[3:5]))
 
-        roles_raw = series.get('roles') or []
+        raw_from_db = series.get('roles')
+        print(f"[recurring] series {sid}: roles from DB type={type(raw_from_db).__name__} value={repr(raw_from_db)[:200]}")
+        roles_raw = raw_from_db or []
         if isinstance(roles_raw, str):
             roles_raw = _json.loads(roles_raw)
         # Normalize: each element must be a dict (double-encoded JSONB yields strings)
@@ -189,6 +191,7 @@ class RecurringCog(commands.Cog, name="Recurring"):
                 except Exception:
                     pass
         roles_raw = normalized
+        print(f"[recurring] series {sid}: {len(roles_raw)} roles after normalization")
 
         try:
             async with utils.pool.acquire() as conn:
@@ -216,6 +219,7 @@ class RecurringCog(commands.Cog, name="Recurring"):
                     )
                     event_id = str(event_row['id'])
 
+                    roles_inserted = 0
                     for i, r in enumerate(roles_raw):
                         if not r.get('name'):
                             continue
@@ -224,6 +228,8 @@ class RecurringCog(commands.Cog, name="Recurring"):
                             INSERT INTO event_roles (event_id, name, emoji, soft_cap, display_order)
                             VALUES ($1, $2, $3, $4, $5)
                         """, event_id, r['name'], r.get('emoji'), int(sc) if sc is not None else None, i)
+                        roles_inserted += 1
+                    print(f"[recurring] event {event_id}: inserted {roles_inserted} event_roles")
 
                     cal = await conn.fetchrow("""
                         INSERT INTO calendar_events
