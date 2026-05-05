@@ -176,6 +176,19 @@ class RecurringCog(commands.Cog, name="Recurring"):
         roles_raw = series.get('roles') or []
         if isinstance(roles_raw, str):
             roles_raw = _json.loads(roles_raw)
+        # Normalize: each element must be a dict (double-encoded JSONB yields strings)
+        normalized = []
+        for r in roles_raw:
+            if isinstance(r, dict):
+                normalized.append(r)
+            elif isinstance(r, str):
+                try:
+                    parsed = _json.loads(r)
+                    if isinstance(parsed, dict):
+                        normalized.append(parsed)
+                except Exception:
+                    pass
+        roles_raw = normalized
 
         try:
             async with utils.pool.acquire() as conn:
