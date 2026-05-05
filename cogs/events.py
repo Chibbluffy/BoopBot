@@ -918,12 +918,49 @@ class EventsCog(commands.Cog, name="Events"):
     @tasks.loop(minutes=1)
     async def new_embed_poller(self):
         try:
+            # Post embeds not yet sent
             rows = await utils.pool.fetch("""
                 SELECT * FROM events
                 WHERE status = 'active' AND message_id IS NULL AND channel_id IS NOT NULL
             """)
             for row in rows:
                 await self._post_signup_embed(dict(row))
+
+            # Refresh embeds for recurring occurrences that have no roles but the series does
+            roleless = await utils.pool.fetch("""
+                SELECT e.*
+                FROM events e
+                JOIN recurring_events r ON r.id = e.recurring_id
+                WHERE e.status = 'active'
+                  AND e.message_id IS NOT NULL
+                  AND e.channel_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM event_roles er WHERE er.event_id = e.id)
+                  AND jsonb_array_length(CASE
+                        WHEN jsonb_typeof(r.roles) = 'array' THEN r.roles
+                        ELSE '[]'::jsonb END) > 0
+            """)
+            for row in roleless:
+                event = dict(row)
+                event_id = str(event["id"])
+                series_roles = await utils.pool.fetch(
+                    "SELECT roles FROM recurring_events WHERE id = $1", event["recurring_id"]
+                )
+                if not series_roles:
+                    continue
+                raw = series_roles[0]["roles"]
+                if not isinstance(raw, list):
+                    continue
+                for i, r in enumerate(raw):
+                    if not isinstance(r, dict) or not r.get("name"):
+                        continue
+                    sc = r.get("soft_cap")
+                    await utils.pool.execute("""
+                        INSERT INTO event_roles (event_id, name, emoji, soft_cap, display_order)
+                        VALUES ($1, $2, $3, $4, $5)
+                        ON CONFLICT DO NOTHING
+                    """, event_id, r["name"], r.get("emoji"), int(sc) if sc is not None else None, i)
+                print(f"[events] repaired missing roles for occurrence {event_id}")
+                await utils.pool.execute("SELECT pg_notify('event_updated', $1)", event_id)
         except Exception as e:
             print(f"[events] new-embed poller error: {e}")
 
