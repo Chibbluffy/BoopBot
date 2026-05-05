@@ -142,9 +142,10 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
     # ── Bench / Tentative / Absent ────────────────────────────────────────────
     bench_members     = [s for s in signups if s["status"] == "bench"]
     tentative_members = [s for s in signups if s["status"] == "tentative"]
+    declined_members  = [s for s in signups if s["status"] == "declined"]
     absent_members    = [s for s in signups if s["status"] == "absent"]
 
-    if bench_members or tentative_members or absent_members:
+    if bench_members or tentative_members or declined_members or absent_members:
         embed.add_field(name="\u200b", value="─────────────────────", inline=False)
 
     # Bench — grouped by the role they wanted
@@ -168,8 +169,8 @@ async def build_event_embed(event: dict, roles: list, signups: list, class_emoji
                 inline=False,
             )
 
-    # Tentative / Absent — flat list
-    for label, icon, members in [("Tentative", "❓", tentative_members), ("Absent", "🚫", absent_members)]:
+    # Tentative / Declined / Absent — flat list
+    for label, icon, members in [("Tentative", "❓", tentative_members), ("Declined", "❌", declined_members), ("Absent", "🚫", absent_members)]:
         if members:
             parts = []
             for s in members:
@@ -335,7 +336,7 @@ async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
                     event_id, discord_id, discord_name, role_id, role_name, bdo_class, row["next_order"], status,
                 )
             await conn.execute("UPDATE events SET updated_at = NOW() WHERE id = $1", event_id)
-    await _sync_calendar_interest(event_id, discord_id, add=(status != "absent"))
+    await _sync_calendar_interest(event_id, discord_id, add=(status not in ("absent", "declined")))
     bench_position = None
     if status == "bench":
         bench_position = await utils.pool.fetchval(
@@ -504,6 +505,7 @@ class EventSignupView(discord.ui.View):
 
             for label, status, emoji_str, cid_prefix in [
                 ("Tentative", "tentative", "❓", "tentative"),
+                ("Declined",  "declined",  "❌", "declined"),
             ]:
                 btn = discord.ui.Button(
                     label=label, style=discord.ButtonStyle.secondary,
