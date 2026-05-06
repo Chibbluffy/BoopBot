@@ -1051,7 +1051,7 @@ class EventsCog(commands.Cog, name="Events"):
             message_id = str(payload.message_id)
             row = await utils.pool.fetchrow(
                 """SELECT * FROM events
-                   WHERE message_id = $1 AND status IN ('active', 'closed') AND channel_id IS NOT NULL""",
+                   WHERE message_id = $1 AND status = 'active' AND channel_id IS NOT NULL""",
                 message_id,
             )
             if not row:
