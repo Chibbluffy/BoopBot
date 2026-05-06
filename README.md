@@ -72,14 +72,18 @@ The bot shares a PostgreSQL database with the boop.fish website. It reads and wr
 #### Chatbot
 - Mention the bot or reply to one of its messages to chat and get a response.
 - Personality and context are configured in `chatbot_context.txt`.
-- Uses Google Gemini models. Use `!resetchat` to cycle to the next model.
+- Uses Google Gemini (`gemini-2.5-flash-lite` / `gemini-2.5-flash`). Use `!resetchat` to cycle to the next model.
 
-#### 8-Ball
-- Ask the magic 8-ball a yes/no question.
-- The same question returns the same answer for 1 hour to prevent re-rolling.
-```
-!8ball <question>
-```
+#### Fun
+- Ask the magic 8-ball a yes/no question. The same question returns the same answer for 1 hour.
+	```
+	!8ball <question>
+	```
+
+- Roll a random number from 1 to N (default 100).
+	```
+	!roll [max]
+	```
 
 #### Events
 - Create Event
@@ -92,6 +96,192 @@ The bot shares a PostgreSQL database with the boop.fish website. It reads and wr
 	!create_event "GLEAGUE!!!!!" "" <t:1743987540:F> 30
 	```
 	- Will automatically ping users who have marked "Interested" 30 minutes and 5 minutes before the event begins.
+
+#### Economy
+- Check balance (yours or another user's)
+	```
+	!balance [@user]
+	!bal [@user]
+	```
+
+- Collect 1,000 boops (once every 23 hours)
+	```
+	!daily
+	```
+
+- Beg for boops (only works when you have fewer than 100)
+	```
+	!beg
+	```
+
+- Give boops to another user
+	```
+	!give @user <amount>
+	```
+
+- View the top boop leaderboard
+	```
+	!richest
+	!booplb
+	```
+
+- (Admin) Award boops to a user
+	```
+	!award @user <amount>
+	```
+
+#### Casino
+Minimum bet: **10 boops**.
+
+- Flip a coin
+	```
+	!betflip <amount> <h/t>
+	!bf <amount> <h/t>
+	!flip <amount> <h/t>
+	```
+
+- Bet roll (>66: 2×, >90: 3×, 100: 10×)
+	```
+	!betroll <amount>
+	!br <amount>
+	```
+
+- Play blackjack (Hit / Stand / Double Down)
+	```
+	!blackjack <amount>
+	!bj <amount>
+	```
+
+#### Fishing
+- Cast your line and catch fish for boops
+	```
+	!fish
+	```
+
+- Browse the fishing shop (rods, floats, bait)
+	```
+	!shop
+	```
+
+- Buy a shop item
+	```
+	!buy <item> [quantity]
+	```
+
+- Equip a rod, float, or set active bait
+	```
+	!equip <item>
+	```
+
+- Unequip your float or active bait
+	```
+	!unequip <float|bait>
+	```
+
+- Set Fish Whisperer focus tier (0 = off, 1–5)
+	```
+	!fishfocus <0-5>
+	```
+
+- View your inventory
+	```
+	!inventory
+	!inv
+	```
+
+- Browse the fish guide / catch reference
+	```
+	!fishguide
+	!fishbook
+	!fishdex
+	```
+
+- View drop rates / catch chances
+	```
+	!fishrates
+	!fishchances
+	!droprates
+	```
+
+- View personal best fishing records (yours or another user's)
+	```
+	!fishrecords [@user]
+	!fishpb [@user]
+	```
+
+- View the best fishers leaderboard
+	```
+	!bestfishers
+	```
+
+#### Quotes
+- List quotes (optionally filtered by keyword, paginated)
+	```
+	!quotelist [keyword]
+	!ql [keyword]
+	```
+
+- Print a random quote by keyword
+	```
+	!quoteprint <keyword>
+	!qp <keyword>
+	!q <keyword>
+	```
+
+- Get a quote by ID
+	```
+	!quoteget <id>
+	!qg <id>
+	```
+
+- Show a quote embed by ID
+	```
+	!quoteshow <id>
+	!qshow <id>
+	```
+
+- Add a quote
+	```
+	!quoteadd <keyword> [text]
+	!qa <keyword> [text]
+	```
+
+- Search for a quote by text within a keyword
+	```
+	!quotesearch <keyword> <search_term>
+	!qsearch <keyword> <search_term>
+	!qfind <keyword> <search_term>
+	```
+
+- Delete a quote by ID
+	```
+	!quotedelete <id>
+	!qd <id>
+	```
+
+- Delete all quotes by a user
+	```
+	!quotedeleteauthor @user
+	!qda @user
+	```
+
+- Delete all quotes (optionally for a keyword)
+	```
+	!quotesdeleteall [keyword]
+	!qdall [keyword]
+	```
+
+- Export all quotes as a YAML file
+	```
+	!quotesexport
+	!qexport
+	```
+
+- Import quotes from an attached YAML file
+	```
+	!quotesimport
+	!qimport
+	```
 
 #### Gear
 - Save/update gear image
@@ -136,9 +326,31 @@ The bot shares a PostgreSQL database with the boop.fish website. It reads and wr
 	!showguildgs
 	```
 
-- View gear score leaderboard (paginated, sorted by GS)
+- View gear score leaderboard, guild members only (paginated, sorted by GS)
 	```
 	!gslb
+	```
+
+- View AP leaderboard, guild members only (sorted by effective AP)
+	```
+	!aplb
+	```
+
+- View gear score leaderboard including non-members (paginated)
+	```
+	!gsall
+	```
+
+#### Moderation
+Requires the **Manage Messages** permission.
+
+- Delete messages
+	```
+	!prune                   — delete the command + the message before it
+	!prune <count>           — delete last N messages
+	!prune @user             — delete user's messages in the last 100
+	!prune @user <count>     — delete last N messages from user
+	!clr / !clear            — aliases for !prune
 	```
 
 #### Chest Timer Management
