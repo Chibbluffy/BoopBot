@@ -1042,6 +1042,30 @@ class EventsCog(commands.Cog, name="Events"):
             str(msg.id), event_id,
         )
 
+    # ── Message-delete recovery ───────────────────────────────────────────────
+
+    @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
+        """Re-post an event signup embed if its Discord message is manually deleted."""
+        try:
+            message_id = str(payload.message_id)
+            row = await utils.pool.fetchrow(
+                """SELECT * FROM events
+                   WHERE message_id = $1 AND status IN ('active', 'closed') AND channel_id IS NOT NULL""",
+                message_id,
+            )
+            if not row:
+                return
+            event = dict(row)
+            # Clear the stale message_id before re-posting
+            await utils.pool.execute(
+                "UPDATE events SET message_id = NULL WHERE id = $1", event["id"]
+            )
+            await self._post_signup_embed(event)
+            print(f"[events] re-posted embed for event {event['id']} after message deletion")
+        except Exception as e:
+            print(f"[events] on_raw_message_delete error: {e}")
+
     # ── Commands ──────────────────────────────────────────────────────────────
 
     @commands.command()
