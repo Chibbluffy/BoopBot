@@ -24,6 +24,15 @@ STATUS_COLORS = {
 }
 
 
+def _reminder_label(minutes: int) -> str:
+    if minutes < 60:
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    h, m = divmod(minutes, 60)
+    if m == 0:
+        return f"{h} hour{'s' if h != 1 else ''}"
+    return f"{h} hour{'s' if h != 1 else ''} {m} minute{'s' if m != 1 else ''}"
+
+
 async def fetch_class_emojis() -> dict:
     rows = await utils.pool.fetch("SELECT class_name, emoji_id, emoji_name, animated FROM class_emojis")
     result = {}
@@ -787,33 +796,42 @@ class EventsCog(commands.Cog, name="Events"):
                             print(f"Error processing event {event.id}: {e}")
 
                 try:
-                    for minutes_ahead in [30, 5]:
-                        window_start = now + timedelta(minutes=minutes_ahead)
-                        window_end   = window_start + timedelta(minutes=1)
-                        cal_events   = await utils.pool.fetch("""
+                    rc = discord.utils.get(guild.text_channels, name=utils.NOTIFY_CHANNEL)
+                    if rc:
+                        rows = await utils.pool.fetch("""
                             SELECT ce.title,
-                                   array_agg(u.discord_id) FILTER (WHERE u.discord_id IS NOT NULL) AS discord_ids
+                                   COALESCE(ev.reminder_minutes, ARRAY[60, 30]) AS reminder_minutes,
+                                   array_agg(u.discord_id) FILTER (WHERE u.discord_id IS NOT NULL) AS discord_ids,
+                                   (ce.event_date + ce.event_time) AT TIME ZONE ce.event_timezone AS event_utc
                             FROM calendar_events ce
                             LEFT JOIN calendar_event_interests cei ON cei.event_id = ce.id
                             LEFT JOIN users u ON u.id = cei.user_id
                             LEFT JOIN events ev ON ev.calendar_event_id = ce.id
                             WHERE ce.event_time IS NOT NULL AND ce.event_timezone IS NOT NULL
                               AND (ev.id IS NULL OR ev.enable_reminder_ping = TRUE)
-                            GROUP BY ce.id, ce.title
-                            HAVING (ce.event_date + ce.event_time) AT TIME ZONE ce.event_timezone BETWEEN $1 AND $2
-                        """, window_start, window_end)
-                        rc = discord.utils.get(guild.text_channels, name=utils.NOTIFY_CHANNEL)
-                        if not rc:
-                            continue
-                        for ev in cal_events:
-                            mentions = " ".join(
-                                m.mention for did in (ev['discord_ids'] or [])
-                                if did and (m := guild.get_member(int(did)))
-                            )
-                            msg = f"Reminder! {ev['title']} starts in {minutes_ahead} minutes!"
-                            if mentions:
-                                msg += f"\n{mentions}"
-                            await rc.send(msg)
+                            GROUP BY ce.id, ce.title, ev.reminder_minutes,
+                                     (ce.event_date + ce.event_time) AT TIME ZONE ce.event_timezone
+                            HAVING (ce.event_date + ce.event_time) AT TIME ZONE ce.event_timezone
+                                   BETWEEN $1 AND $1 + INTERVAL '25 hours'
+                        """, now)
+                        for row in rows:
+                            event_utc = row['event_utc']
+                            if event_utc.tzinfo is None:
+                                event_utc = event_utc.replace(tzinfo=timezone.utc)
+                            minutes_until = (event_utc - now).total_seconds() / 60
+                            for rm in (row['reminder_minutes'] or []):
+                                if rm - 1 < minutes_until <= rm:
+                                    discord_ids = row['discord_ids'] or []
+                                    mentions = " ".join(
+                                        m.mention for did in discord_ids
+                                        if did and (m := guild.get_member(int(did)))
+                                    )
+                                    label = _reminder_label(rm)
+                                    msg = f"Reminder! {row['title']} starts in {label}!"
+                                    if mentions:
+                                        msg += f"\n{mentions}"
+                                    await rc.send(msg)
+                                    break
                 except Exception as e:
                     print(f"Error checking calendar reminders: {e}")
         except Exception as e:

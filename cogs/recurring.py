@@ -214,8 +214,8 @@ class RecurringCog(commands.Cog, name="Recurring"):
                         INSERT INTO events
                           (title, description, event_date, event_time, event_timezone,
                            total_cap, channel_id, status, recurring_id, created_by,
-                           ping_role_ids, enable_ping, enable_reminder_ping)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11, $12)
+                           ping_role_ids, enable_ping, enable_reminder_ping, reminder_minutes)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11, $12, $13)
                         ON CONFLICT (recurring_id, event_date) DO NOTHING
                         RETURNING *
                     """,
@@ -231,6 +231,7 @@ class RecurringCog(commands.Cog, name="Recurring"):
                         series.get('ping_role_ids') or [],
                         series.get('enable_ping', True),
                         series.get('enable_reminder_ping', True),
+                        series.get('reminder_minutes') or [60, 30],
                     )
                     if not event_row:
                         print(f"[recurring] series {sid}: occurrence {occurrence_date} already exists, skipping")
