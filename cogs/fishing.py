@@ -24,8 +24,8 @@ SHOP_ITEMS = {
     "bait_apprentice":    {"name": "Apprentice Bait",    "category": "bait",  "price":      50, "tier": 2, "desc": "Fish find it hard to resist."},
     "bait_skilled":       {"name": "Skilled Bait",       "category": "bait",  "price":     250, "tier": 3, "desc": "Specially prepared blend."},
     "bait_professional":  {"name": "Professional Bait",  "category": "bait",  "price":   1_000, "tier": 4, "desc": "The pros won't share the recipe."},
-    "bait_artisan":       {"name": "Artisan Bait",       "category": "bait",  "price":   4_000, "tier": 5, "desc": "Rare fish can't ignore this."},
-    "bait_master":        {"name": "Master Bait",        "category": "bait",  "price":  15_000, "tier": 6, "desc": "You don't want to know how this is made. Trust me."},
+    "bait_artisan":       {"name": "Artisan Bait",       "category": "bait",  "price":   3_000, "tier": 5, "desc": "Rare fish can't ignore this."},
+    "bait_master":        {"name": "Master Bait",        "category": "bait",  "price":  10_000, "tier": 6, "desc": "You don't want to know how this is made. Trust me."},
 }
 
 # (tier, name, value, min_kg, max_kg)
@@ -188,7 +188,7 @@ _DROP_WEIGHTS = {
     17:  (  3,  10,  23,  32,  25,   7),
     18:  (  2,  10,  22,  29,  29,   8),
     19:  (  1,  10,  21,  30,  29,   9),
-    20:  (  1,  10,  20,  29,  30,  10),
+    20:  (  1,  10,  15,  29,  30,  15),
 }
 
 def _roll_fish(gear_score):
