@@ -101,7 +101,7 @@ class QuotesCog(commands.Cog, name="Quotes"):
         quote = random.choice(rows)
         await ctx.reply(f"`{quote['nadeko_id']}` 📣 {quote['text']}")
 
-    @commands.command(name="quoteget", aliases=["qg"])
+    @commands.command(name="quoteget", aliases=["qg", "!!!"])
     async def quoteget(self, ctx, quote_id: str):
         """Prints a quote by ID. Usage: !quoteget <id>"""
         row = await utils.pool.fetchrow(
