@@ -15,8 +15,6 @@ _ALL_CLASSES = sorted([
     "Nova", "Sage", "Corsair", "Drakania", "Woosa",
     "Maegu", "Scholar", "Dosa", "Deadeye", "Wukong", "Seraph",
 ])
-BDO_CLASSES_1 = _ALL_CLASSES[:25]   # fallback split — overridden at runtime by DB
-BDO_CLASSES_2 = _ALL_CLASSES[25:]   # fallback split
 
 # ── Dynamic BDO class list (fetched from class_emojis DB with 5-min cache) ────
 _bdo_classes_cache: list[str] = []
@@ -430,37 +428,45 @@ async def _is_event_open(event_id: str) -> tuple[bool, str]:
 
 # ── Class selection views ──────────────────────────────────────────────────────
 
-class ClassSelectMenu1(discord.ui.Select):
-    def __init__(self, event_id: str, role_id, role_name: str):
+class _ClassChunkMenu(discord.ui.Select):
+    """One select menu covering a 25-class chunk of the full BDO list."""
+
+    def __init__(self, event_id: str, role_id, role_name: str,
+                 classes: list[str], chunk_index: int):
         self.event_id  = event_id
         self.role_id   = role_id
         self.role_name = role_name
-        options = [discord.SelectOption(label=c, value=c) for c in BDO_CLASSES_1]
-        super().__init__(placeholder="Classes A–V…", options=options, custom_id=f"cls1:{event_id}:{role_id}")
-
-    async def callback(self, interaction: discord.Interaction):
-        await _finish_signup(interaction, self.event_id, self.role_id, self.role_name, self.values[0])
-
-
-class ClassSelectMenu2(discord.ui.Select):
-    def __init__(self, event_id: str, role_id, role_name: str):
-        self.event_id  = event_id
-        self.role_id   = role_id
-        self.role_name = role_name
-        options = [discord.SelectOption(label=c, value=c) for c in BDO_CLASSES_2]
-        super().__init__(placeholder="Classes W…", options=options, custom_id=f"cls2:{event_id}:{role_id}")
+        options = [discord.SelectOption(label=c, value=c) for c in classes]
+        # Placeholder shows the range: "Classes A–F  (1 of 2)"
+        first, last = classes[0], classes[-1]
+        total_chunks = None  # resolved externally, left off for simplicity
+        placeholder  = f"Classes {first[:1]}–{last[:1]}…"
+        super().__init__(
+            placeholder=placeholder,
+            options=options,
+            custom_id=f"cls{chunk_index}:{event_id}:{role_id}",
+        )
 
     async def callback(self, interaction: discord.Interaction):
         await _finish_signup(interaction, self.event_id, self.role_id, self.role_name, self.values[0])
 
 
 class ClassSelectView(discord.ui.View):
-    """Class selection with optional profile quick-pick buttons."""
+    """Class selection: up to 2 quick-pick buttons + dynamically generated select menus.
 
-    def __init__(self, event_id: str, role_id, role_name: str, profile_classes: list[str] | None = None):
+    Discord limits: 25 options per select, 5 action rows per message.
+    Quick-picks use 1 row (up to 2 buttons), leaving 4 rows for selects → up to 100 classes.
+    If profile_classes is empty, all 5 rows are selects → up to 125 classes.
+    """
+
+    def __init__(self, event_id: str, role_id, role_name: str,
+                 profile_classes: list[str] | None = None,
+                 all_classes: list[str] | None = None):
         super().__init__(timeout=120)
 
-        # Green quick-pick buttons for saved profile classes (up to 2)
+        classes = list(all_classes) if all_classes else list(_ALL_CLASSES)
+
+        # Quick-pick buttons (up to 2) — each takes one button slot in the first row
         for cls in (profile_classes or [])[:2]:
             btn = discord.ui.Button(
                 label=cls,
@@ -470,8 +476,12 @@ class ClassSelectView(discord.ui.View):
             btn.callback = self._make_quick_cb(event_id, role_id, role_name, cls)
             self.add_item(btn)
 
-        self.add_item(ClassSelectMenu1(event_id, role_id, role_name))
-        self.add_item(ClassSelectMenu2(event_id, role_id, role_name))
+        # Split into chunks of 25 and add one select menu per chunk
+        # Discord allows 5 rows total; quick-picks use 1 if present
+        max_menus = 4 if profile_classes else 5
+        chunks = [classes[i:i + 25] for i in range(0, len(classes), 25)]
+        for idx, chunk in enumerate(chunks[:max_menus]):
+            self.add_item(_ClassChunkMenu(event_id, role_id, role_name, chunk, idx + 1))
 
     @staticmethod
     def _make_quick_cb(event_id, role_id, role_name, bdo_class):
@@ -691,16 +701,20 @@ class EventSignupView(discord.ui.View):
                 )
 
             else:
-                # BDO class flow — quick-pick only applies here since choices = all BDO classes
+                # BDO class flow — fetch current list from DB (5-min cache)
+                all_classes = await _get_bdo_classes()
+                available   = set(all_classes)
+
+                # Quick-pick: only show profile classes that exist in the current BDO list
                 row = await utils.pool.fetchrow(
                     "SELECT bdo_class, alt_class FROM users WHERE discord_id = $1",
                     str(interaction.user.id),
                 )
                 profile_classes = []
                 if row:
-                    if row["bdo_class"]:
+                    if row["bdo_class"] and row["bdo_class"] in available:
                         profile_classes.append(row["bdo_class"])
-                    if row["alt_class"] and row["alt_class"] != row["bdo_class"]:
+                    if row["alt_class"] and row["alt_class"] != row["bdo_class"] and row["alt_class"] in available:
                         profile_classes.append(row["alt_class"])
 
                 content = f"{status_note}\n\nPick your class to show it on the signup (optional):"
@@ -709,7 +723,7 @@ class EventSignupView(discord.ui.View):
 
                 await interaction.response.send_message(
                     content,
-                    view=ClassSelectView(self.event_id, role_id, role_name, profile_classes),
+                    view=ClassSelectView(self.event_id, role_id, role_name, profile_classes, all_classes),
                     ephemeral=True,
                 )
 
