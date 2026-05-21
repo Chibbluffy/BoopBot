@@ -1,8 +1,8 @@
-import discord, asyncio
+import discord, asyncio, re, time as _time
 from discord.ext import commands, tasks
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-import asyncpg, os
+import asyncpg, os, json
 import utils
 
 WEBSITE_URL = os.getenv("WEBSITE_URL", "https://boop.fish")
@@ -13,10 +13,33 @@ _ALL_CLASSES = sorted([
     "Wizard", "Witch", "Dark Knight", "Striker", "Mystic",
     "Lahn", "Archer", "Shai", "Guardian", "Hashashin",
     "Nova", "Sage", "Corsair", "Drakania", "Woosa",
-    "Maegu", "Scholar", "Dosa", "Deadeye",
+    "Maegu", "Scholar", "Dosa", "Deadeye", "Wukong", "Seraph",
 ])
-BDO_CLASSES_1 = _ALL_CLASSES[:25]   # Archer – Valkyrie
-BDO_CLASSES_2 = _ALL_CLASSES[25:]   # Warrior – Woosa
+BDO_CLASSES_1 = _ALL_CLASSES[:25]   # fallback split — overridden at runtime by DB
+BDO_CLASSES_2 = _ALL_CLASSES[25:]   # fallback split
+
+# ── Dynamic BDO class list (fetched from class_emojis DB with 5-min cache) ────
+_bdo_classes_cache: list[str] = []
+_bdo_classes_cache_ts: float = 0.0
+_BDO_CACHE_TTL = 300  # seconds
+
+async def _get_bdo_classes() -> list[str]:
+    """Return is_bdo=true class names from DB, falling back to the hardcoded list."""
+    global _bdo_classes_cache, _bdo_classes_cache_ts
+    if _bdo_classes_cache and _time.monotonic() - _bdo_classes_cache_ts < _BDO_CACHE_TTL:
+        return _bdo_classes_cache
+    try:
+        rows = await utils.pool.fetch(
+            "SELECT class_name FROM class_emojis WHERE is_bdo = true ORDER BY class_name ASC"
+        )
+        classes = [r["class_name"] for r in rows]
+        if classes:
+            _bdo_classes_cache = classes
+            _bdo_classes_cache_ts = _time.monotonic()
+            return classes
+    except Exception as e:
+        print(f"[events] could not fetch BDO classes from DB, using fallback: {e}")
+    return list(_ALL_CLASSES)
 
 STATUS_COLORS = {
     "active": discord.Color.blurple(),
@@ -43,6 +66,17 @@ async def fetch_class_emojis() -> dict:
         elif r["emoji_name"]:
             result[r["class_name"]] = r["emoji_name"]
     return result
+
+
+def _parse_emoji(emoji_str: str | None) -> discord.PartialEmoji | str | None:
+    """Parse a Discord emoji string (<:name:id> or <a:name:id>) into a PartialEmoji,
+    or return the raw string for standard unicode emoji, or None if empty."""
+    if not emoji_str:
+        return None
+    m = re.match(r"<(a)?:([^:]+):(\d+)>", emoji_str)
+    if m:
+        return discord.PartialEmoji(name=m.group(2), id=int(m.group(3)), animated=bool(m.group(1)))
+    return emoji_str
 
 
 async def fetch_event(event_id: str) -> dict | None:
@@ -341,8 +375,9 @@ async def _upsert_signup(event_id: str, discord_id: str, discord_name: str,
                        WHERE event_id = $1 AND discord_id = $2""",
                     event_id, discord_id, role_id, role_name, bdo_class, status, discord_name, new_order,
                 )
-                # Freed an accepted slot in the old role — try to promote from bench
-                if role_changed and existing["old_status"] == "accepted":
+                # Freed an accepted slot — try to promote from bench.
+                # Triggers if role changed (old slot freed) OR status left accepted (e.g. declined/tentative).
+                if existing["old_status"] == "accepted" and (role_changed or status != "accepted"):
                     promoted_signup = await _try_promote_bench(event_id, existing["role_id"], conn)
             else:
                 row = await conn.fetchrow(
@@ -495,6 +530,45 @@ async def _finish_signup(interaction: discord.Interaction, event_id: str, role_i
             await interaction.followup.send(f"Something went wrong: {e}", ephemeral=True)
 
 
+# ── Custom choice selection ────────────────────────────────────────────────────
+
+class CustomChoiceMenu(discord.ui.Select):
+    """Single select menu built from a role's custom choices list."""
+
+    def __init__(self, event_id: str, role_id, role_name: str, choices: list):
+        self.event_id  = event_id
+        self.role_id   = role_id
+        self.role_name = role_name
+
+        options = []
+        for choice in choices[:25]:  # Discord max 25 per select
+            label = str(choice.get("label") or "").strip()
+            if not label:
+                continue
+            emoji = _parse_emoji(choice.get("emoji"))
+            opt = discord.SelectOption(label=label, value=label, emoji=emoji)
+            options.append(opt)
+
+        if not options:
+            options = [discord.SelectOption(label="(no choices configured)", value="")]
+
+        super().__init__(
+            placeholder="Pick an option…",
+            options=options,
+            custom_id=f"custom_choice:{event_id}:{role_id}",
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        chosen = self.values[0] if self.values[0] else None
+        await _finish_signup(interaction, self.event_id, self.role_id, self.role_name, chosen)
+
+
+class CustomChoiceView(discord.ui.View):
+    def __init__(self, event_id: str, role_id, role_name: str, choices: list):
+        super().__init__(timeout=120)
+        self.add_item(CustomChoiceMenu(event_id, role_id, role_name, choices))
+
+
 # ── Main signup view ───────────────────────────────────────────────────────────
 
 class EventSignupView(discord.ui.View):
@@ -563,7 +637,7 @@ class EventSignupView(discord.ui.View):
                 return
 
             role_row = await utils.pool.fetchrow(
-                "SELECT id FROM event_roles WHERE id = $1", role_id
+                "SELECT id, class_mode, choices FROM event_roles WHERE id = $1", role_id
             )
             if not role_row:
                 await interaction.response.send_message(
@@ -571,38 +645,73 @@ class EventSignupView(discord.ui.View):
                 )
                 return
 
-            # Reserve the spot immediately — no class required yet
+            # Reserve the spot immediately — secondary selection happens after
             resolved, bench_pos, promoted = await _upsert_signup(
                 self.event_id, str(interaction.user.id), interaction.user.display_name,
                 role_id, role_name, None, "accepted",
             )
 
-            row = await utils.pool.fetchrow(
-                "SELECT bdo_class, alt_class FROM users WHERE discord_id = $1",
-                str(interaction.user.id),
-            )
-            profile_classes = []
-            if row:
-                if row["bdo_class"]:
-                    profile_classes.append(row["bdo_class"])
-                if row["alt_class"] and row["alt_class"] != row["bdo_class"]:
-                    profile_classes.append(row["alt_class"])
-
             if resolved == "bench":
                 pos_str     = f" You're **#{bench_pos}** on the bench for this role." if bench_pos else ""
-                status_note = f"🪑 **{role_name}** is full.{pos_str}\n\n"
+                status_note = f"🪑 **{role_name}** is full.{pos_str}"
             else:
-                status_note = f"✅ Signed up for **{role_name}**!\n\n"
+                status_note = f"✅ Signed up for **{role_name}**!"
 
-            content = f"{status_note}Pick your class to show it on the signup (optional):"
-            if profile_classes:
-                content += "\n\n**Quick pick** (from your profile) — or use the dropdowns below:"
+            class_mode  = role_row.get("class_mode") or "bdo"
+            choices_raw = role_row.get("choices") or []
+            if not isinstance(choices_raw, list):
+                choices_raw = []
 
-            await interaction.response.send_message(
-                content,
-                view=ClassSelectView(self.event_id, role_id, role_name, profile_classes),
-                ephemeral=True,
-            )
+            if class_mode == "none":
+                # No secondary selection — confirm immediately
+                await interaction.response.send_message(status_note, ephemeral=True)
+
+            elif class_mode == "custom" and choices_raw:
+                # Look up emojis from class_emojis for each selected class name
+                emoji_rows = await utils.pool.fetch(
+                    "SELECT class_name, emoji_id, emoji_name, animated FROM class_emojis WHERE class_name = ANY($1)",
+                    choices_raw,
+                )
+                emoji_map = {}
+                for row in emoji_rows:
+                    if row["emoji_id"] and row["emoji_name"]:
+                        prefix = "a" if row["animated"] else ""
+                        emoji_map[row["class_name"]] = f"<{prefix}:{row['emoji_name']}:{row['emoji_id']}>"
+                    elif row["emoji_name"]:
+                        emoji_map[row["class_name"]] = row["emoji_name"]
+                # Build choices list preserving the order defined on the role
+                choices_with_emoji = [
+                    {"label": name, "emoji": emoji_map.get(name)}
+                    for name in choices_raw if name
+                ]
+                await interaction.response.send_message(
+                    f"{status_note}\n\nPick your option:",
+                    view=CustomChoiceView(self.event_id, role_id, role_name, choices_with_emoji),
+                    ephemeral=True,
+                )
+
+            else:
+                # BDO class flow — quick-pick only applies here since choices = all BDO classes
+                row = await utils.pool.fetchrow(
+                    "SELECT bdo_class, alt_class FROM users WHERE discord_id = $1",
+                    str(interaction.user.id),
+                )
+                profile_classes = []
+                if row:
+                    if row["bdo_class"]:
+                        profile_classes.append(row["bdo_class"])
+                    if row["alt_class"] and row["alt_class"] != row["bdo_class"]:
+                        profile_classes.append(row["alt_class"])
+
+                content = f"{status_note}\n\nPick your class to show it on the signup (optional):"
+                if profile_classes:
+                    content += "\n\n**Quick pick** (from your profile) — or use the dropdowns below:"
+
+                await interaction.response.send_message(
+                    content,
+                    view=ClassSelectView(self.event_id, role_id, role_name, profile_classes),
+                    ephemeral=True,
+                )
 
             asyncio.create_task(_do_embed_refresh(interaction.client, self.event_id))
 
@@ -1016,10 +1125,11 @@ class EventsCog(commands.Cog, name="Events"):
                         continue
                     sc = r.get("soft_cap")
                     await utils.pool.execute("""
-                        INSERT INTO event_roles (event_id, name, emoji, soft_cap, display_order)
-                        VALUES ($1, $2, $3, $4, $5)
+                        INSERT INTO event_roles (event_id, name, emoji, soft_cap, display_order, class_mode, choices)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
                         ON CONFLICT DO NOTHING
-                    """, event_id, r["name"], r.get("emoji"), int(sc) if sc is not None else None, i)
+                    """, event_id, r["name"], r.get("emoji"), int(sc) if sc is not None else None, i,
+                         r.get("class_mode") or "bdo", json.dumps(r.get("choices") or []))
                 print(f"[events] repaired missing roles for occurrence {event_id}")
                 await utils.pool.execute("SELECT pg_notify('event_updated', $1)", event_id)
         except Exception as e:
