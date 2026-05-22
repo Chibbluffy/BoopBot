@@ -669,6 +669,13 @@ class EventSignupView(discord.ui.View):
 
             class_mode  = role_row.get("class_mode") or "bdo"
             choices_raw = role_row.get("choices") or []
+            # asyncpg returns JSONB as a raw JSON string in this environment —
+            # decode it the same way new_embed_poller does for recurring_events.roles
+            if isinstance(choices_raw, str):
+                try:
+                    choices_raw = json.loads(choices_raw)
+                except Exception:
+                    choices_raw = []
             if not isinstance(choices_raw, list):
                 choices_raw = []
 
@@ -679,7 +686,7 @@ class EventSignupView(discord.ui.View):
             elif class_mode == "custom" and choices_raw:
                 # Look up emojis from class_emojis for each selected class name
                 emoji_rows = await utils.pool.fetch(
-                    "SELECT class_name, emoji_id, emoji_name, animated FROM class_emojis WHERE class_name = ANY($1)",
+                    "SELECT class_name, emoji_id, emoji_name, animated FROM class_emojis WHERE class_name = ANY($1::text[])",
                     choices_raw,
                 )
                 emoji_map = {}
