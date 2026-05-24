@@ -245,9 +245,10 @@ class RecurringCog(commands.Cog, name="Recurring"):
                             continue
                         sc = r.get('soft_cap')
                         await conn.execute("""
-                            INSERT INTO event_roles (event_id, name, emoji, soft_cap, display_order)
-                            VALUES ($1, $2, $3, $4, $5)
-                        """, event_id, r['name'], r.get('emoji'), int(sc) if sc is not None else None, i)
+                            INSERT INTO event_roles (event_id, name, emoji, soft_cap, display_order, class_mode, choices)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        """, event_id, r['name'], r.get('emoji'), int(sc) if sc is not None else None, i,
+                             r.get('class_mode', 'bdo'), r.get('choices', []))
                         roles_inserted += 1
                     print(f"[recurring] event {event_id}: inserted {roles_inserted} event_roles")
 
