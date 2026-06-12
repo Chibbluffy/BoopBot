@@ -98,8 +98,9 @@ class RecurringCog(commands.Cog, name="Recurring"):
     # ── Per-series task ───────────────────────────────────────────────────────
 
     async def _run_series(self, sid: str):
-        try:
-            while True:
+        retry_delay = 60  # seconds to wait after a transient error before retrying
+        while True:
+            try:
                 row = await utils.pool.fetchrow(
                     "SELECT * FROM recurring_events WHERE id = $1", sid
                 )
@@ -143,21 +144,24 @@ class RecurringCog(commands.Cog, name="Recurring"):
                 else:
                     print(f"[recurring] series {sid}: post time passed, posting {occurrence_date} now")
 
-                # Re-check validity after sleep (series may have been edited)
-                row2 = await utils.pool.fetchrow(
-                    "SELECT end_date, skip_dates FROM recurring_events WHERE id = $1",
-                    sid,
+                # Re-fetch the full series after the sleep so we use fresh config (channel,
+                # roles, etc.) in case it was edited while we were sleeping.
+                row = await utils.pool.fetchrow(
+                    "SELECT * FROM recurring_events WHERE id = $1", sid
                 )
-                if not row2:
+                if not row:
                     return
+                series = dict(row)
+                series_uuid = row['id']
+
                 def _to_date(v):
                     if v is None: return None
                     if isinstance(v, date): return v
                     return date.fromisoformat(str(v)[:10])
-                end_date = _to_date(row2['end_date'])
+                end_date = _to_date(series.get('end_date'))
                 if end_date and occurrence_date > end_date:
                     return
-                skip_dates = set(_to_date(d) for d in (row2['skip_dates'] or []))
+                skip_dates = set(_to_date(d) for d in (series.get('skip_dates') or []))
                 if occurrence_date in skip_dates:
                     continue  # skip, loop back to find next
 
@@ -174,11 +178,15 @@ class RecurringCog(commands.Cog, name="Recurring"):
                     # Creation failed — sleep before retrying to prevent tight loop
                     await asyncio.sleep(60)
 
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            print(f"[recurring] series {sid} error: {e}")
-            traceback.print_exc()
+                retry_delay = 60  # reset backoff after a successful iteration
+
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                print(f"[recurring] series {sid} error (retrying in {retry_delay}s): {e}")
+                traceback.print_exc()
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 3600)  # cap at 1 hour
 
     async def _create_occurrence(self, series: dict, event_dt: datetime, occurrence_date: date):
         sid    = str(series['id'])
@@ -246,9 +254,9 @@ class RecurringCog(commands.Cog, name="Recurring"):
                         sc = r.get('soft_cap')
                         await conn.execute("""
                             INSERT INTO event_roles (event_id, name, emoji, soft_cap, display_order, class_mode, choices)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
                         """, event_id, r['name'], r.get('emoji'), int(sc) if sc is not None else None, i,
-                             r.get('class_mode', 'bdo'), r.get('choices', []))
+                             r.get('class_mode', 'bdo'), _json.dumps(r.get('choices') or []))
                         roles_inserted += 1
                     print(f"[recurring] event {event_id}: inserted {roles_inserted} event_roles")
 
