@@ -1,7 +1,6 @@
-import discord, json, random
+import discord, random
 from datetime import timedelta, timezone, datetime
 from discord.ext import commands
-import google.generativeai as genai
 import utils
 
 
@@ -22,12 +21,6 @@ class FunCog(commands.Cog, name="Fun"):
         self._8ball_cache: dict = {}
         self._ttl = timedelta(hours=1)
 
-    def _ensure_chat(self):
-        """Initialize the chat session on first use, sending context as the opening message."""
-        if self.bot._chat is None:
-            self.bot._chat = genai.GenerativeModel(self.bot._models[self.bot._model_idx]).start_chat(history=[])
-            self.bot._chat.send_message(self.bot._context)
-
     @commands.Cog.listener()
     async def on_message(self, message):
         if message.author == self.bot.user:
@@ -41,17 +34,12 @@ class FunCog(commands.Cog, name="Fun"):
             return
         async with message.channel.typing():
             try:
-                self._ensure_chat()
-                payload  = json.dumps({
-                    "user_id":      message.author.id,
-                    "user_name":    message.author.name,
-                    "display_name": message.author.display_name,
-                    "guild_id":     message.guild.id,
-                    "channel_id":   message.channel.id,
-                    "content":      content,
-                }, indent=4)
-                response = self.bot._chat.send_message(payload)
-                reply    = response.text
+                reply = await utils.brain_generate(
+                    guild_id=message.guild.id, channel_id=message.channel.id,
+                    user_id=message.author.id, user_name=message.author.name,
+                    display_name=message.author.display_name, content=content,
+                    is_mention=True,
+                )
                 while len(reply) > 2000:
                     r, reply = utils.split_reply(reply)
                     await message.reply(r)
@@ -108,10 +96,9 @@ class FunCog(commands.Cog, name="Fun"):
 
     @commands.command()
     async def resetchat(self, ctx):
-        """Cycles to the next AI model and resets the chat session."""
-        self.bot._model_idx = (self.bot._model_idx + 1) % len(self.bot._models)
-        self.bot._chat      = None  # cleared — will re-init with context on next mention
-        await ctx.send(f"Chat reset. Model: **{self.bot._models[self.bot._model_idx]}**")
+        """Clears this channel's rolling AI chat history."""
+        await utils.brain_clear_history(ctx.channel.id)
+        await ctx.send("Chat history cleared for this channel.")
 
 
 async def setup(bot):

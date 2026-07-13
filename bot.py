@@ -1,15 +1,12 @@
-import discord, asyncio, os, asyncpg, traceback
+import discord, asyncio, os, aiohttp, asyncpg, traceback
 from discord.ext import commands
 from dotenv import load_dotenv
 load_dotenv()
 
-import google.generativeai as genai
 import utils
 
-TOKEN               = os.getenv("BOT_TOKEN")
-DATABASE_URL        = os.getenv("DATABASE_URL")
-GOOGLE_API_KEY      = os.getenv("GOOGLE_API_KEY")
-CHATBOT_CONTEXT_FILE = os.getenv("CHATBOT_CONTEXT_FILE", "chatbot_context.txt")
+TOKEN        = os.getenv("BOT_TOKEN")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 _COGS = [
     "cogs.events",
@@ -150,19 +147,16 @@ async def main():
         utils.pool = await asyncpg.create_pool(DATABASE_URL)
         print("Database pool created.")
 
-        # Chatbot state stored on bot instance so cogs can access it
-        genai.configure(api_key=GOOGLE_API_KEY)
-        bot._models    = ['gemini-2.5-flash-lite', 'gemini-2.5-flash']
-        bot._model_idx = 0
-        with open(CHATBOT_CONTEXT_FILE, 'r') as f:
-            bot._context = f.read()
-        bot._chat = None  # initialized lazily on first mention
+        utils.http = aiohttp.ClientSession()
 
         for ext in _COGS:
             await bot.load_extension(ext)
             print(f"Loaded {ext}")
 
-        await bot.start(TOKEN)
+        try:
+            await bot.start(TOKEN)
+        finally:
+            await utils.http.close()
 
 
 if __name__ == '__main__':

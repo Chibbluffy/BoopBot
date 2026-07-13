@@ -1,15 +1,18 @@
 """Shared database pool and helper functions used across all cogs."""
 
 from __future__ import annotations
-import asyncpg, os, random
+import aiohttp, asyncpg, os, random
 import string as _string
 from datetime import datetime, timezone
 
 pool: asyncpg.Pool = None  # assigned in bot.main() before cogs load
+http: aiohttp.ClientSession = None  # assigned in bot.main() before cogs load
 
 # ── Env-derived constants ──────────────────────────────────────────────────────
 NOTIFY_CHANNEL       = 'looking-for-group'
 GUILD_MEMBER_ROLE_ID = int(os.getenv("GUILD_MEMBER_ROLE_ID", "0"))
+BRAIN_BASE_URL       = os.getenv("BRAIN_BASE_URL", "http://10.8.0.200:8000")
+BRAIN_SHARED_SECRET  = os.getenv("BRAIN_SHARED_SECRET", "")
 
 # ── General helpers ────────────────────────────────────────────────────────────
 
@@ -34,6 +37,28 @@ def split_reply(reply):
 
 def calculate_gs(ap, aap, dp):
     return max(ap, aap) + dp
+
+# ── Brain (chat) helpers ───────────────────────────────────────────────────────
+
+async def _brain_post(path: str, payload: dict) -> dict:
+    async with http.post(
+        f"{BRAIN_BASE_URL}{path}", json=payload,
+        headers={"X-BoopBot-Secret": BRAIN_SHARED_SECRET},
+        timeout=aiohttp.ClientTimeout(total=30),
+    ) as resp:
+        resp.raise_for_status()
+        return await resp.json()
+
+async def brain_generate(*, guild_id, channel_id, user_id, user_name, display_name, content, is_mention):
+    data = await _brain_post("/generate", {
+        "guild_id": guild_id, "channel_id": channel_id, "user_id": user_id,
+        "user_name": user_name, "display_name": display_name,
+        "content": content, "is_mention": is_mention,
+    })
+    return data["reply"]
+
+async def brain_clear_history(channel_id: int) -> None:
+    await _brain_post("/history/clear", {"channel_id": channel_id})
 
 # ── Auth helpers ───────────────────────────────────────────────────────────────
 
