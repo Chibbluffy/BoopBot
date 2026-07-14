@@ -56,12 +56,14 @@ journalctl -u boopbot -n 50      # view last 50 log lines
 | `CHEST_INFO_CHANNEL_ID` | Channel ID for chest timer display message |
 | `CHEST_INFO_MESSAGE_ID` | Message ID for chest timer display message |
 | `CHEST_EVENTS_FILE` | Path to chest events JSON file (default: `chest_events.json`) |
-| `GOOGLE_API_KEY` | Google Gemini API key |
 | `DATABASE_URL` | PostgreSQL connection string (e.g. `postgres://boop:password@localhost:5432/boopfish`) |
-| `CHATBOT_CONTEXT_FILE` | Path to the chatbot context file (default: `chatbot_context.txt`) |
+| `BRAIN_BASE_URL` | Base URL of the `boop-brain` chat/orchestration service (default: `http://10.8.0.200:8000`) |
+| `BRAIN_SHARED_SECRET` | Shared secret sent as `X-BoopBot-Secret` — must match `BRAIN_SHARED_SECRET` on the `boop-brain` service |
+| `JUMPIN_PROBABILITY` | Chance (0–1) the bot jumps into conversation unprompted, per eligible message (default: `0.02`) |
+| `JUMPIN_COOLDOWN_SECONDS` | Minimum seconds between jump-in attempts per channel (default: `300`) |
 
-### `chatbot_context.txt`
-Contains the system prompt / personality instructions sent to the Gemini model at startup. Edit this file to change the bot's behavior, add/remove guild members, or update context — no code changes needed. The bot must be restarted for changes to take effect.
+### Architecture
+Chat generation, rolling history, and lore (mem0/Qdrant) all live in a separate service, [`boop-brain`](https://github.com/Chibbluffy/boop-brain), deployed on the AI server rather than in this repo — BoopBot only handles Discord I/O and a cheap local check for the jump-in feature. See that repo's README for setup/deployment.
 
 ## Database
 
@@ -71,8 +73,32 @@ The bot shares a PostgreSQL database with the boop.fish website. It reads and wr
 
 #### Chatbot
 - Mention the bot or reply to one of its messages to chat and get a response.
-- Personality and context are configured in `chatbot_context.txt`.
-- Uses Google Gemini (`gemini-2.5-flash-lite` / `gemini-2.5-flash`). Use `!resetchat` to cycle to the next model.
+- The bot also occasionally jumps into conversation unprompted (tuned by `JUMPIN_PROBABILITY`/`JUMPIN_COOLDOWN_SECONDS`), similar to a real member chiming in — not on every message.
+- Generation runs on a self-hosted Ollama instance via the `boop-brain` service (see Architecture above), with rolling per-channel chat history and long-term "lore" memory.
+- Use `!resetchat` to clear this channel's rolling chat history.
+
+#### Lore
+Long-term memory the bot draws on when chatting — some shared server-wide, some personal to you.
+
+- Add shared guild lore
+	```
+	!lore add <text>
+	```
+
+- Add a personal fact about you
+	```
+	!lore addme <text>
+	```
+
+- List guild + your personal lore (paginated)
+	```
+	!lore list [page]
+	```
+
+- Delete a lore entry by its short id (shown in `!lore list`)
+	```
+	!lore forget <short_id>
+	```
 
 #### Fun
 - Ask the magic 8-ball a yes/no question. The same question returns the same answer for 1 hour.

@@ -1,4 +1,4 @@
-import discord, random
+import asyncio, discord, os, random
 from datetime import timedelta, timezone, datetime
 from discord.ext import commands
 import utils
@@ -20,32 +20,62 @@ class FunCog(commands.Cog, name="Fun"):
         self.bot       = bot
         self._8ball_cache: dict = {}
         self._ttl = timedelta(hours=1)
+        self._jumpin_cooldowns: dict = {}
+        self._jumpin_probability = float(os.getenv("JUMPIN_PROBABILITY", "0.02"))
+        self._jumpin_cooldown    = timedelta(seconds=int(os.getenv("JUMPIN_COOLDOWN_SECONDS", "300")))
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        if message.author == self.bot.user:
-            return
-        if not self.bot.user.mentioned_in(message):
+        if message.author == self.bot.user or not message.guild:
             return
         if message.content.startswith(self.bot.command_prefix):
             return
-        content = message.content.replace(f'<@{self.bot.user.id}>', '').strip()
-        if not content:
+
+        is_mention = self.bot.user.mentioned_in(message)
+        content    = message.content.replace(f'<@{self.bot.user.id}>', '').strip() if is_mention else message.content
+        if is_mention and not content:
             return
-        async with message.channel.typing():
-            try:
-                reply = await utils.brain_generate(
-                    guild_id=message.guild.id, channel_id=message.channel.id,
-                    user_id=message.author.id, user_name=message.author.name,
-                    display_name=message.author.display_name, content=content,
-                    is_mention=True,
-                )
+
+        if not is_mention:
+            now          = datetime.now(timezone.utc)
+            next_allowed = self._jumpin_cooldowns.get(message.channel.id)
+            if next_allowed and now < next_allowed:
+                return
+            # Set the cooldown on every roll, regardless of outcome, so a burst of
+            # chat can't repeatedly trigger the relevance check.
+            self._jumpin_cooldowns[message.channel.id] = now + self._jumpin_cooldown
+            if random.random() >= self._jumpin_probability:
+                return
+
+        try:
+            reply = await utils.brain_generate(
+                guild_id=message.guild.id, channel_id=message.channel.id,
+                user_id=message.author.id, user_name=message.author.name,
+                display_name=message.author.display_name, content=content,
+                is_mention=is_mention,
+            )
+        except Exception as e:
+            if is_mention:
+                await message.reply(f"Sorry, something went wrong.\n{e}")
+            return  # jump-in failures fail silently — nobody asked, no error to surface
+
+        if reply is None:
+            return
+
+        if is_mention:
+            async with message.channel.typing():
                 while len(reply) > 2000:
                     r, reply = utils.split_reply(reply)
                     await message.reply(r)
                 await message.reply(reply)
-            except Exception as e:
-                await message.reply(f"Sorry, something went wrong.\n{e}")
+        else:
+            await asyncio.sleep(random.uniform(1.0, 3.0))
+            async with message.channel.typing():
+                await asyncio.sleep(min(2.0, len(reply) / 40))
+                while len(reply) > 2000:
+                    r, reply = utils.split_reply(reply)
+                    await message.channel.send(r)
+                await message.channel.send(reply)
 
     @commands.command(name='8ball')
     async def eightball(self, ctx, *, question: str = None):

@@ -40,11 +40,11 @@ def calculate_gs(ap, aap, dp):
 
 # ── Brain (chat) helpers ───────────────────────────────────────────────────────
 
-async def _brain_post(path: str, payload: dict) -> dict:
+async def _brain_post(path: str, payload: dict, timeout: int = 30) -> dict:
     async with http.post(
         f"{BRAIN_BASE_URL}{path}", json=payload,
         headers={"X-BoopBot-Secret": BRAIN_SHARED_SECRET},
-        timeout=aiohttp.ClientTimeout(total=30),
+        timeout=aiohttp.ClientTimeout(total=timeout),
     ) as resp:
         resp.raise_for_status()
         return await resp.json()
@@ -54,11 +54,26 @@ async def brain_generate(*, guild_id, channel_id, user_id, user_name, display_na
         "guild_id": guild_id, "channel_id": channel_id, "user_id": user_id,
         "user_name": user_name, "display_name": display_name,
         "content": content, "is_mention": is_mention,
-    })
+    }, timeout=60)
     return data["reply"]
 
 async def brain_clear_history(channel_id: int) -> None:
     await _brain_post("/history/clear", {"channel_id": channel_id})
+
+async def brain_lore_add(guild_id: int, text: str, added_by_user_id: int, added_by_name: str) -> dict:
+    return await _brain_post("/lore/add", {
+        "guild_id": guild_id, "text": text,
+        "added_by_user_id": added_by_user_id, "added_by_name": added_by_name,
+    })
+
+async def brain_lore_addme(user_id: int, text: str) -> dict:
+    return await _brain_post("/lore/addme", {"user_id": user_id, "text": text})
+
+async def brain_lore_list(guild_id: int, user_id: int) -> dict:
+    return await _brain_post("/lore/list", {"guild_id": guild_id, "user_id": user_id})
+
+async def brain_lore_forget(guild_id: int, user_id: int, short_id: str) -> dict:
+    return await _brain_post("/lore/forget", {"guild_id": guild_id, "user_id": user_id, "short_id": short_id})
 
 # ── Auth helpers ───────────────────────────────────────────────────────────────
 

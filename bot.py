@@ -14,6 +14,7 @@ _COGS = [
     "cogs.gear",
     "cogs.quotes",
     "cogs.fun",
+    "cogs.lore",
     "cogs.economy",
     "cogs.fishing",
     "cogs.casino",
