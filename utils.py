@@ -54,7 +54,7 @@ async def brain_generate(*, guild_id, channel_id, user_id, user_name, display_na
         "guild_id": guild_id, "channel_id": channel_id, "user_id": user_id,
         "user_name": user_name, "display_name": display_name,
         "content": content, "is_mention": is_mention,
-    }, timeout=60)
+    }, timeout=150)
     return data["reply"]
 
 async def brain_clear_history(channel_id: int) -> None:

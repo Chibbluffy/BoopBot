@@ -1,4 +1,4 @@
-import asyncio, discord, os, random
+import asyncio, discord, os, random, traceback
 from datetime import timedelta, timezone, datetime
 from discord.ext import commands
 import utils
@@ -55,8 +55,10 @@ class FunCog(commands.Cog, name="Fun"):
                 is_mention=is_mention,
             )
         except Exception as e:
+            print(f"[brain_generate] {type(e).__name__}: {e}")
+            traceback.print_exc()
             if is_mention:
-                await message.reply(f"Sorry, something went wrong.\n{e}")
+                await message.reply(f"Sorry, something went wrong.\n{type(e).__name__}: {e}")
             return  # jump-in failures fail silently — nobody asked, no error to surface
 
         if reply is None:

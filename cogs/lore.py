@@ -1,4 +1,4 @@
-import discord
+import discord, traceback
 from discord.ext import commands
 import utils
 
@@ -72,31 +72,56 @@ class LoreCog(commands.Cog, name="Lore"):
     async def lore(self, ctx):
         await ctx.send_help(ctx.command)
 
+    @staticmethod
+    def _log_brain_error(command_name: str, e: Exception):
+        print(f"[lore] {command_name} failed: {type(e).__name__}: {e}")
+        traceback.print_exc()
+
     @lore.command(name="add")
     async def lore_add(self, ctx, *, text: str):
         """Adds shared guild lore. Usage: !lore add <text>"""
-        resp = await utils.brain_lore_add(ctx.guild.id, text, ctx.author.id, ctx.author.display_name)
+        try:
+            resp = await utils.brain_lore_add(ctx.guild.id, text, ctx.author.id, ctx.author.display_name)
+        except Exception as e:
+            self._log_brain_error("lore add", e)
+            await ctx.send(f"Sorry, something went wrong.\n{type(e).__name__}: {e}")
+            return
         short_id = (resp.get("id") or "")[:8]
         await ctx.send(f"Added to guild lore. (`{short_id}`)")
 
     @lore.command(name="addme")
     async def lore_addme(self, ctx, *, text: str):
         """Adds a personal fact about you. Usage: !lore addme <text>"""
-        resp = await utils.brain_lore_addme(ctx.author.id, text)
+        try:
+            resp = await utils.brain_lore_addme(ctx.author.id, text)
+        except Exception as e:
+            self._log_brain_error("lore addme", e)
+            await ctx.send(f"Sorry, something went wrong.\n{type(e).__name__}: {e}")
+            return
         short_id = (resp.get("id") or "")[:8]
         await ctx.send(f"Added to your personal facts. (`{short_id}`)")
 
     @lore.command(name="list")
     async def lore_list(self, ctx, page: int = 1):
         """Lists guild + your personal lore, paginated. Usage: !lore list [page]"""
-        data = await utils.brain_lore_list(ctx.guild.id, ctx.author.id)
+        try:
+            data = await utils.brain_lore_list(ctx.guild.id, ctx.author.id)
+        except Exception as e:
+            self._log_brain_error("lore list", e)
+            await ctx.send(f"Sorry, something went wrong.\n{type(e).__name__}: {e}")
+            return
         view = LoreListView(data["guild_lore"], data["user_lore"], ctx.author.id, start_page=page - 1)
         view.message = await ctx.send(embed=view.create_embed(), view=view)
 
     @lore.command(name="forget")
     async def lore_forget(self, ctx, short_id: str):
         """Deletes a lore entry by its short id shown in !lore list. Usage: !lore forget <short_id>"""
-        resp = await utils.brain_lore_forget(ctx.guild.id, ctx.author.id, short_id)
+        try:
+            resp = await utils.brain_lore_forget(ctx.guild.id, ctx.author.id, short_id)
+        except Exception as e:
+            self._log_brain_error("lore forget", e)
+            await ctx.send(f"Sorry, something went wrong.\n{type(e).__name__}: {e}")
+            return
         if resp.get("deleted"):
             await ctx.send(f"Forgot: \"{resp['text']}\"")
         elif resp.get("ambiguous"):

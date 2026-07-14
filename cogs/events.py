@@ -421,8 +421,8 @@ async def _is_event_open(event_id: str) -> tuple[bool, str]:
             dt_aware = dt_naive.replace(tzinfo=ZoneInfo(tz_str))
             if dt_aware < datetime.now(timezone.utc):
                 return False, "This event has already passed — signups are closed."
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[events] _is_event_open: could not parse date/time for event {event_id}: {e}")
     return True, ""
 
 
@@ -507,8 +507,8 @@ async def _finish_signup(interaction: discord.Interaction, event_id: str, role_i
                     f"If someone withdraws, you may be automatically promoted.\n"
                     f"{WEBSITE_URL}/#/calendar?tab=events&event={event_id}"
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[events] could not DM bench notice to {interaction.user.id}: {e}")
         else:
             msg = f"✅ Signed up as **{bdo_class}** for **{role_name}**!"
         if promoted:
@@ -520,8 +520,8 @@ async def _finish_signup(interaction: discord.Interaction, event_id: str, role_i
                     f"You've been moved from the bench to **{promoted.get('role_name') or 'an available role'}**.\n"
                     f"{WEBSITE_URL}/#/calendar?tab=events&event={event_id}"
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[events] could not DM promotion notice to {promoted['discord_id']}: {e}")
         await interaction.response.edit_message(content=msg, view=None)
         event = await fetch_event(event_id)
         if event and event.get("message_id") and event.get("channel_id"):
@@ -674,7 +674,8 @@ class EventSignupView(discord.ui.View):
             if isinstance(choices_raw, str):
                 try:
                     choices_raw = json.loads(choices_raw)
-                except Exception:
+                except Exception as e:
+                    print(f"[events] role {role_id}: could not parse choices JSON, treating as empty: {e}")
                     choices_raw = []
             if not isinstance(choices_raw, list):
                 choices_raw = []
@@ -745,8 +746,8 @@ class EventSignupView(discord.ui.View):
                         f"You've been moved from the bench to **{promoted.get('role_name') or 'an available role'}**.\n"
                         f"{WEBSITE_URL}/#/calendar?tab=events&event={self.event_id}"
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[events] could not DM promotion notice to {promoted['discord_id']}: {e}")
         return callback
 
     async def _fetch_embed_msg(self, client: discord.Client):
@@ -814,8 +815,8 @@ class EventSignupView(discord.ui.View):
                         f"You've been moved from the bench to **{promoted_from_bench.get('role_name') or 'an available role'}**.\n"
                         f"{WEBSITE_URL}/#/calendar?tab=events&event={self.event_id}"
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[events] could not DM promotion notice to {promoted_from_bench['discord_id']}: {e}")
             await interaction.followup.send("Withdrawn from event.", ephemeral=True)
             msg = await self._fetch_embed_msg(interaction.client)
             await _refresh_embed(msg, self.event_id)
@@ -1065,8 +1066,8 @@ class EventsCog(commands.Cog, name="Events"):
             try:
                 user_obj = await self.bot.fetch_user(int(discord_id))
                 await user_obj.send("\n".join(lines))
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[events] could not DM signup-change notice to {discord_id}: {e}")
         except Exception as e:
             print(f"[events] signup_changed notify error: {e}")
 
@@ -1137,7 +1138,9 @@ class EventsCog(commands.Cog, name="Events"):
                 while isinstance(raw, str):
                     try:
                         raw = _j.loads(raw)
-                    except Exception:
+                    except Exception as e:
+                        print(f"[events] new_embed_poller: could not parse roles JSON for series "
+                              f"{event['recurring_id']}, skipping: {e}")
                         break
                 if not isinstance(raw, list):
                     continue
