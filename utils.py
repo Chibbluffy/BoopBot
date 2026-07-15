@@ -73,8 +73,10 @@ async def brain_lore_addme(user_id: int, text: str) -> dict:
 async def brain_lore_list(guild_id: int, user_id: int) -> dict:
     return await _brain_post("/lore/list", {"guild_id": guild_id, "user_id": user_id})
 
-async def brain_lore_forget(guild_id: int, user_id: int, short_id: str) -> dict:
-    return await _brain_post("/lore/forget", {"guild_id": guild_id, "user_id": user_id, "short_id": short_id})
+async def brain_lore_forget(guild_id: int, user_id: int, short_id: str, is_admin: bool = False) -> dict:
+    return await _brain_post("/lore/forget", {
+        "guild_id": guild_id, "user_id": user_id, "short_id": short_id, "is_admin": is_admin,
+    })
 
 # ── Auth helpers ───────────────────────────────────────────────────────────────
 

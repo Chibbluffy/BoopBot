@@ -79,7 +79,10 @@ class LoreCog(commands.Cog, name="Lore"):
 
     @lore.command(name="add")
     async def lore_add(self, ctx, *, text: str):
-        """Adds shared guild lore. Usage: !lore add <text>"""
+        """(Admin) Adds shared guild lore. Usage: !lore add <text>"""
+        if not await utils.is_admin(str(ctx.author.id)):
+            await ctx.send("This command is admin only.")
+            return
         try:
             resp = await utils.brain_lore_add(ctx.guild.id, text, ctx.author.id, ctx.author.display_name)
         except Exception as e:
@@ -115,15 +118,19 @@ class LoreCog(commands.Cog, name="Lore"):
 
     @lore.command(name="forget")
     async def lore_forget(self, ctx, short_id: str):
-        """Deletes a lore entry by its short id shown in !lore list. Usage: !lore forget <short_id>"""
+        """Deletes a lore entry by its short id shown in !lore list. Usage: !lore forget <short_id>
+        Personal entries can be forgotten by their owner; shared guild lore requires an admin."""
+        is_admin = await utils.is_admin(str(ctx.author.id))
         try:
-            resp = await utils.brain_lore_forget(ctx.guild.id, ctx.author.id, short_id)
+            resp = await utils.brain_lore_forget(ctx.guild.id, ctx.author.id, short_id, is_admin=is_admin)
         except Exception as e:
             self._log_brain_error("lore forget", e)
             await ctx.send(f"Sorry, something went wrong.\n{type(e).__name__}: {e}")
             return
         if resp.get("deleted"):
             await ctx.send(f"Forgot: \"{resp['text']}\"")
+        elif resp.get("forbidden"):
+            await ctx.send("That's shared guild lore — only admins can forget it.")
         elif resp.get("ambiguous"):
             await ctx.send(f"`{short_id}` matches more than one entry — use `!lore list` and a longer prefix.")
         else:

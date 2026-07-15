@@ -79,9 +79,9 @@ The bot shares a PostgreSQL database with the boop.fish website. It reads and wr
 - Use `!resetchat` to clear this channel's rolling chat history.
 
 #### Lore
-Long-term memory the bot draws on when chatting — some shared server-wide, some personal to you.
+Long-term memory the bot draws on when chatting — some shared server-wide, some personal to you. Admin status is checked against the same `users.role` column in the shared database that boop.fish uses.
 
-- Add shared guild lore
+- (Admin) Add shared guild lore
 	```
 	!lore add <text>
 	```
@@ -96,7 +96,7 @@ Long-term memory the bot draws on when chatting — some shared server-wide, som
 	!lore list [page]
 	```
 
-- Delete a lore entry by its short id (shown in `!lore list`)
+- Delete a lore entry by its short id (shown in `!lore list`). Personal entries can be forgotten by their owner; shared guild lore requires an admin.
 	```
 	!lore forget <short_id>
 	```
