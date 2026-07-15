@@ -59,8 +59,8 @@ journalctl -u boopbot -n 50      # view last 50 log lines
 | `DATABASE_URL` | PostgreSQL connection string (e.g. `postgres://boop:password@localhost:5432/boopfish`) |
 | `BRAIN_BASE_URL` | Base URL of the `boop-brain` chat/orchestration service (default: `http://10.8.0.200:8000`) |
 | `BRAIN_SHARED_SECRET` | Shared secret sent as `X-BoopBot-Secret` — must match `BRAIN_SHARED_SECRET` on the `boop-brain` service |
-| `JUMPIN_PROBABILITY` | Chance (0–1) the bot jumps into conversation unprompted, per eligible message (default: `0.02`) |
-| `JUMPIN_COOLDOWN_SECONDS` | Minimum seconds between jump-in attempts per channel (default: `300`) |
+| `JUMPIN_MESSAGE_INTERVAL` | Every Nth eligible (non-mention) message in a channel earns a shot at the jump-in relevance check (default: `10`) |
+| `JUMPIN_COOLDOWN_SECONDS` | Minimum seconds between jump-in attempts per channel — a backstop so a fast burst can't trigger checks back-to-back once the count resets (default: `300`) |
 | `LORE_SUMMARIZE_GAP_MINUTES` | Default silence gap (minutes) marking a conversation boundary for `!lore summarize` — overridable per-command, see below (default: `30`) |
 | `LORE_SUMMARIZE_MAX_LOOKBACK_HOURS` | Hard cap on how far back `!lore summarize` will look behind its anchor point regardless of gaps found — not overridable per-command, a safety limit (default: `48`) |
 | `LORE_SUMMARIZE_MAX_MESSAGES` | Max messages fetched from Discord history per `!lore summarize` call — not overridable per-command, a safety limit (default: `500`) |
@@ -76,7 +76,7 @@ The bot shares a PostgreSQL database with the boop.fish website. It reads and wr
 
 #### Chatbot
 - Mention the bot or reply to one of its messages to chat and get a response.
-- The bot also occasionally jumps into conversation unprompted (tuned by `JUMPIN_PROBABILITY`/`JUMPIN_COOLDOWN_SECONDS`), similar to a real member chiming in — not on every message.
+- The bot also occasionally jumps into conversation unprompted (tuned by `JUMPIN_MESSAGE_INTERVAL`/`JUMPIN_COOLDOWN_SECONDS`), similar to a real member chiming in — not on every message. Even earning a shot at this doesn't guarantee a reply: a second check on the AI server decides whether jumping in would actually make sense given the recent conversation.
 - Generation runs on a self-hosted Ollama instance via the `boop-brain` service (see Architecture above), with rolling per-channel chat history and long-term "lore" memory.
 - Most messages get a fast reply from a small default model. If a message contains a link, an image attachment, or question/search-like phrasing ("what is...", "who is...", "look up...", etc.), `boop-brain` automatically escalates that reply to a larger model that can read the linked page, look at the image, or search the live web for an answer — no separate command needed, it's detected automatically.
 - Use `!resetchat` to clear this channel's rolling chat history.

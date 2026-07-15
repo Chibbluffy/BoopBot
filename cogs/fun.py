@@ -21,8 +21,9 @@ class FunCog(commands.Cog, name="Fun"):
         self._8ball_cache: dict = {}
         self._ttl = timedelta(hours=1)
         self._jumpin_cooldowns: dict = {}
-        self._jumpin_probability = float(os.getenv("JUMPIN_PROBABILITY", "0.02"))
-        self._jumpin_cooldown    = timedelta(seconds=int(os.getenv("JUMPIN_COOLDOWN_SECONDS", "300")))
+        self._jumpin_message_counts: dict = {}
+        self._jumpin_message_interval = int(os.getenv("JUMPIN_MESSAGE_INTERVAL", "10"))
+        self._jumpin_cooldown         = timedelta(seconds=int(os.getenv("JUMPIN_COOLDOWN_SECONDS", "300")))
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -45,11 +46,18 @@ class FunCog(commands.Cog, name="Fun"):
             next_allowed = self._jumpin_cooldowns.get(message.channel.id)
             if next_allowed and now < next_allowed:
                 return
-            # Set the cooldown on every roll, regardless of outcome, so a burst of
-            # chat can't repeatedly trigger the relevance check.
-            self._jumpin_cooldowns[message.channel.id] = now + self._jumpin_cooldown
-            if random.random() >= self._jumpin_probability:
+
+            # Count-based, not chance-based: every Nth eligible message in a channel
+            # earns a shot at gate 2, rather than a flat per-message probability that
+            # could go a long time without firing even in an active channel. The
+            # cooldown above still acts as a backstop so a very fast burst can't
+            # trigger checks back-to-back once the count resets.
+            count = self._jumpin_message_counts.get(message.channel.id, 0) + 1
+            if count < self._jumpin_message_interval:
+                self._jumpin_message_counts[message.channel.id] = count
                 return
+            self._jumpin_message_counts[message.channel.id] = 0
+            self._jumpin_cooldowns[message.channel.id] = now + self._jumpin_cooldown
 
         try:
             reply = await utils.brain_generate(
