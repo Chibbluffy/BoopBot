@@ -61,6 +61,9 @@ journalctl -u boopbot -n 50      # view last 50 log lines
 | `BRAIN_SHARED_SECRET` | Shared secret sent as `X-BoopBot-Secret` — must match `BRAIN_SHARED_SECRET` on the `boop-brain` service |
 | `JUMPIN_PROBABILITY` | Chance (0–1) the bot jumps into conversation unprompted, per eligible message (default: `0.02`) |
 | `JUMPIN_COOLDOWN_SECONDS` | Minimum seconds between jump-in attempts per channel (default: `300`) |
+| `LORE_SUMMARIZE_GAP_MINUTES` | Default silence gap (minutes) marking a conversation boundary for `!lore summarize` — overridable per-command, see below (default: `30`) |
+| `LORE_SUMMARIZE_MAX_LOOKBACK_HOURS` | Hard cap on how far back `!lore summarize` will look behind its anchor point regardless of gaps found — not overridable per-command, a safety limit (default: `48`) |
+| `LORE_SUMMARIZE_MAX_MESSAGES` | Max messages fetched from Discord history per `!lore summarize` call — not overridable per-command, a safety limit (default: `500`) |
 
 ### Architecture
 Chat generation, rolling history, and lore (mem0/Qdrant) all live in a separate service, [`boop-brain`](https://github.com/Chibbluffy/boop-brain), deployed on the AI server rather than in this repo — BoopBot only handles Discord I/O and a cheap local check for the jump-in feature. See that repo's README for setup/deployment.
@@ -101,10 +104,12 @@ Long-term memory the bot draws on when chatting — some shared server-wide, som
 	!lore forget <short_id>
 	```
 
-- Summarize this channel's recent conversation into guild lore right now (this also happens automatically once a channel's been quiet for a while, before its rolling history expires)
+- Summarize a conversation in this channel into guild lore, right now. Reads the actual Discord channel history (finding where the conversation stopped by detecting a gap of silence), so it works in **any** channel — including ones BoopBot has never been mentioned in — not just its own chat history. (A separate, fully automatic version of this also runs on a timer for channels BoopBot *has* been talked to in, right before that chat history would otherwise expire.)
 	```
-	!lore summarize
+	!lore summarize [hours_ago] [gap_minutes]
 	```
+	- `hours_ago` — target the conversation happening this many hours before now instead of the most recent one, e.g. `!lore summarize 3` finds whatever was being discussed ~3 hours ago even if a newer conversation has started since (default: `0`)
+	- `gap_minutes` — override the silence gap that marks a conversation boundary, just for this one run (default: `LORE_SUMMARIZE_GAP_MINUTES`)
 
 #### Fun
 - Ask the magic 8-ball a yes/no question. The same question returns the same answer for 1 hour.

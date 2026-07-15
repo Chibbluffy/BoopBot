@@ -1,6 +1,42 @@
-import discord, traceback
+import discord, os, traceback
+from datetime import datetime, timedelta, timezone
 from discord.ext import commands
 import utils
+
+_SUMMARIZE_GAP_MINUTES        = int(os.getenv("LORE_SUMMARIZE_GAP_MINUTES", "30"))
+_SUMMARIZE_MAX_LOOKBACK_HOURS = int(os.getenv("LORE_SUMMARIZE_MAX_LOOKBACK_HOURS", "48"))
+_SUMMARIZE_MAX_MESSAGES       = int(os.getenv("LORE_SUMMARIZE_MAX_MESSAGES", "500"))
+
+
+async def _find_recent_conversation(channel, hours_ago: float = 0, gap_minutes: float = None) -> list:
+    """Reads the channel's actual Discord message history (not our Redis bot-
+    conversation cache) and walks backward from an anchor point, stopping at the
+    first gap of silence longer than gap_minutes — that's treated as the boundary
+    of "the conversation". The anchor defaults to right now (hours_ago=0), but can
+    be shifted back in time to target an older conversation even if a newer one
+    has started since — e.g. hours_ago=3 looks for whatever was being discussed
+    around 3 hours ago, ignoring anything more recent. Also capped at
+    _SUMMARIZE_MAX_LOOKBACK_HOURS behind the anchor regardless of gaps, so this
+    can never accidentally pull in days of history."""
+    gap_minutes = _SUMMARIZE_GAP_MINUTES if gap_minutes is None else gap_minutes
+    anchor = datetime.now(timezone.utc) - timedelta(hours=hours_ago) if hours_ago > 0 else None
+
+    messages = [
+        msg async for msg in channel.history(limit=_SUMMARIZE_MAX_MESSAGES, oldest_first=False, before=anchor)
+        if msg.content.strip() and not msg.content.startswith("!")
+    ]
+    if not messages:
+        return []
+
+    cutoff = messages[0].created_at - timedelta(hours=_SUMMARIZE_MAX_LOOKBACK_HOURS)
+    conversation = [messages[0]]
+    for prev, curr in zip(messages, messages[1:]):
+        if curr.created_at < cutoff or (prev.created_at - curr.created_at) > timedelta(minutes=gap_minutes):
+            break
+        conversation.append(curr)
+
+    conversation.reverse()  # oldest-first for a natural transcript
+    return [{"name": m.author.display_name, "content": m.content} for m in conversation]
 
 
 class LoreListView(discord.ui.View):
@@ -137,11 +173,32 @@ class LoreCog(commands.Cog, name="Lore"):
             await ctx.send(f"No lore entry found matching `{short_id}`.")
 
     @lore.command(name="summarize")
-    async def lore_summarize(self, ctx):
-        """Summarizes this channel's recent conversation into guild lore now, rather than waiting for it to go idle."""
+    async def lore_summarize(self, ctx, hours_ago: float = 0, gap_minutes: float = None):
+        """Summarizes a conversation in this channel into guild lore.
+        Reads the real Discord channel history, so it works even in channels
+        BoopBot has never been talked to in — not just its own chat history.
+        Usage: !lore summarize [hours_ago] [gap_minutes]
+        hours_ago: look for the conversation happening this many hours before now
+        (default 0 = the most recent one) — e.g. `!lore summarize 3` targets
+        whatever was being discussed ~3 hours ago, even if a newer conversation
+        has started since.
+        gap_minutes: override the silence gap that marks a conversation's boundary
+        for this one run (default: LORE_SUMMARIZE_GAP_MINUTES)."""
         async with ctx.typing():
             try:
-                resp = await utils.brain_summarize_channel(ctx.guild.id, ctx.channel.id)
+                conversation = await _find_recent_conversation(ctx.channel, hours_ago=hours_ago, gap_minutes=gap_minutes)
+            except discord.Forbidden:
+                await ctx.send("I don't have permission to read this channel's message history.")
+                return
+            except Exception as e:
+                self._log_brain_error("lore summarize (fetch)", e)
+                await ctx.send(f"Sorry, something went wrong.\n{type(e).__name__}: {e}")
+                return
+            if not conversation:
+                await ctx.send("No recent conversation found in this channel to summarize.")
+                return
+            try:
+                resp = await utils.brain_summarize_transcript(ctx.guild.id, conversation)
             except Exception as e:
                 self._log_brain_error("lore summarize", e)
                 await ctx.send(f"Sorry, something went wrong.\n{type(e).__name__}: {e}")
@@ -149,7 +206,7 @@ class LoreCog(commands.Cog, name="Lore"):
         if resp.get("summarized"):
             await ctx.send(f"Saved a summary of this conversation to guild lore:\n> {resp['summary']}")
         else:
-            await ctx.send("Nothing worth summarizing yet — this channel has no recent history.")
+            await ctx.send("Nothing worth summarizing yet.")
 
 
 async def setup(bot):
