@@ -174,7 +174,7 @@ class LoreCog(commands.Cog, name="Lore"):
 
     @lore.command(name="summarize")
     async def lore_summarize(self, ctx, hours_ago: float = 0, gap_minutes: float = None):
-        """Summarizes a conversation in this channel into guild lore.
+        """(Officer) Summarizes a conversation in this channel into guild lore.
         Reads the real Discord channel history, so it works even in channels
         BoopBot has never been talked to in — not just its own chat history.
         Usage: !lore summarize [hours_ago] [gap_minutes]
@@ -184,6 +184,9 @@ class LoreCog(commands.Cog, name="Lore"):
         has started since.
         gap_minutes: override the silence gap that marks a conversation's boundary
         for this one run (default: LORE_SUMMARIZE_GAP_MINUTES)."""
+        if not await utils.is_officer(str(ctx.author.id)):
+            await ctx.send("This command is officer only.")
+            return
         async with ctx.typing():
             try:
                 conversation = await _find_recent_conversation(ctx.channel, hours_ago=hours_ago, gap_minutes=gap_minutes)

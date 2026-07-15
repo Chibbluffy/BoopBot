@@ -89,6 +89,11 @@ async def is_admin(discord_id: str) -> bool:
     row = await pool.fetchrow("SELECT role FROM users WHERE discord_id = $1", discord_id)
     return row is not None and row['role'] == 'admin'
 
+async def is_officer(discord_id: str) -> bool:
+    """Officer or admin — mirrors requireRole(user, "officer") on the website."""
+    row = await pool.fetchrow("SELECT role FROM users WHERE discord_id = $1", discord_id)
+    return row is not None and row['role'] in ('officer', 'admin')
+
 # ── Gear DB helpers ────────────────────────────────────────────────────────────
 
 _ALLOWED_GEAR_COLS = {'gear_ap', 'gear_aap', 'gear_dp', 'gear_image_url'}

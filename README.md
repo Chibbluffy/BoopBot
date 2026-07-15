@@ -104,7 +104,7 @@ Long-term memory the bot draws on when chatting — some shared server-wide, som
 	!lore forget <short_id>
 	```
 
-- Summarize a conversation in this channel into guild lore, right now. Reads the actual Discord channel history (finding where the conversation stopped by detecting a gap of silence), so it works in **any** channel — including ones BoopBot has never been mentioned in — not just its own chat history. (A separate, fully automatic version of this also runs on a timer for channels BoopBot *has* been talked to in, right before that chat history would otherwise expire.)
+- (Officer) Summarize a conversation in this channel into guild lore, right now. Reads the actual Discord channel history (finding where the conversation stopped by detecting a gap of silence), so it works in **any** channel — including ones BoopBot has never been mentioned in — not just its own chat history. (A separate, fully automatic version of this also runs on a timer for channels BoopBot *has* been talked to in, right before that chat history would otherwise expire.)
 	```
 	!lore summarize [hours_ago] [gap_minutes]
 	```
