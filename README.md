@@ -75,6 +75,7 @@ The bot shares a PostgreSQL database with the boop.fish website. It reads and wr
 - Mention the bot or reply to one of its messages to chat and get a response.
 - The bot also occasionally jumps into conversation unprompted (tuned by `JUMPIN_PROBABILITY`/`JUMPIN_COOLDOWN_SECONDS`), similar to a real member chiming in — not on every message.
 - Generation runs on a self-hosted Ollama instance via the `boop-brain` service (see Architecture above), with rolling per-channel chat history and long-term "lore" memory.
+- Most messages get a fast reply from a small default model. If a message contains a link, an image attachment, or question/search-like phrasing ("what is...", "who is...", "look up...", etc.), `boop-brain` automatically escalates that reply to a larger model that can read the linked page, look at the image, or search the live web for an answer — no separate command needed, it's detected automatically.
 - Use `!resetchat` to clear this channel's rolling chat history.
 
 #### Lore
