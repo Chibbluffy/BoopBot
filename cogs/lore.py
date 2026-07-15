@@ -136,6 +136,21 @@ class LoreCog(commands.Cog, name="Lore"):
         else:
             await ctx.send(f"No lore entry found matching `{short_id}`.")
 
+    @lore.command(name="summarize")
+    async def lore_summarize(self, ctx):
+        """Summarizes this channel's recent conversation into guild lore now, rather than waiting for it to go idle."""
+        async with ctx.typing():
+            try:
+                resp = await utils.brain_summarize_channel(ctx.guild.id, ctx.channel.id)
+            except Exception as e:
+                self._log_brain_error("lore summarize", e)
+                await ctx.send(f"Sorry, something went wrong.\n{type(e).__name__}: {e}")
+                return
+        if resp.get("summarized"):
+            await ctx.send(f"Saved a summary of this conversation to guild lore:\n> {resp['summary']}")
+        else:
+            await ctx.send("Nothing worth summarizing yet — this channel has no recent history.")
+
 
 async def setup(bot):
     await bot.add_cog(LoreCog(bot))

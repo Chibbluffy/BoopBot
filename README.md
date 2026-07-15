@@ -101,6 +101,11 @@ Long-term memory the bot draws on when chatting — some shared server-wide, som
 	!lore forget <short_id>
 	```
 
+- Summarize this channel's recent conversation into guild lore right now (this also happens automatically once a channel's been quiet for a while, before its rolling history expires)
+	```
+	!lore summarize
+	```
+
 #### Fun
 - Ask the magic 8-ball a yes/no question. The same question returns the same answer for 1 hour.
 	```

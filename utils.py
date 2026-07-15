@@ -78,6 +78,11 @@ async def brain_lore_forget(guild_id: int, user_id: int, short_id: str, is_admin
         "guild_id": guild_id, "user_id": user_id, "short_id": short_id, "is_admin": is_admin,
     })
 
+async def brain_summarize_channel(guild_id: int, channel_id: int) -> dict:
+    return await _brain_post("/lore/summarize_channel", {
+        "guild_id": guild_id, "channel_id": channel_id,
+    }, timeout=150)
+
 # ── Auth helpers ───────────────────────────────────────────────────────────────
 
 async def is_admin(discord_id: str) -> bool:
