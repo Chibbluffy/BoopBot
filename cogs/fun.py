@@ -35,6 +35,10 @@ class FunCog(commands.Cog, name="Fun"):
         content    = message.content.replace(f'<@{self.bot.user.id}>', '').strip() if is_mention else message.content
         if is_mention and not content:
             return
+        image_urls = [
+            a.url for a in message.attachments
+            if a.content_type and a.content_type.startswith("image/")
+        ]
 
         if not is_mention:
             now          = datetime.now(timezone.utc)
@@ -52,7 +56,7 @@ class FunCog(commands.Cog, name="Fun"):
                 guild_id=message.guild.id, channel_id=message.channel.id,
                 user_id=message.author.id, user_name=message.author.name,
                 display_name=message.author.display_name, content=content,
-                is_mention=is_mention,
+                is_mention=is_mention, image_urls=image_urls,
             )
         except Exception as e:
             print(f"[brain_generate] {type(e).__name__}: {e}")

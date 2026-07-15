@@ -49,11 +49,12 @@ async def _brain_post(path: str, payload: dict, timeout: int = 30) -> dict:
         resp.raise_for_status()
         return await resp.json()
 
-async def brain_generate(*, guild_id, channel_id, user_id, user_name, display_name, content, is_mention):
+async def brain_generate(*, guild_id, channel_id, user_id, user_name, display_name, content, is_mention, image_urls=None):
     data = await _brain_post("/generate", {
         "guild_id": guild_id, "channel_id": channel_id, "user_id": user_id,
         "user_name": user_name, "display_name": display_name,
         "content": content, "is_mention": is_mention,
+        "image_urls": image_urls or [],
     }, timeout=150)
     return data["reply"]
 
