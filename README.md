@@ -59,6 +59,7 @@ journalctl -u boopbot -n 50      # view last 50 log lines
 | `DATABASE_URL` | PostgreSQL connection string (e.g. `postgres://boop:password@localhost:5432/boopfish`) |
 | `BRAIN_BASE_URL` | Base URL of the `boop-brain` chat/orchestration service (default: `http://10.8.0.200:8000`) |
 | `BRAIN_SHARED_SECRET` | Shared secret sent as `X-BoopBot-Secret` — must match `BRAIN_SHARED_SECRET` on the `boop-brain` service |
+| `JUMPIN_ENABLED` | Master on/off switch for unprompted jump-ins — set to `false` to disable entirely, e.g. while tuning gate 2's relevance model (default: `true`) |
 | `JUMPIN_MESSAGE_INTERVAL` | Every Nth eligible (non-mention) message in a channel earns a shot at the jump-in relevance check (default: `10`) |
 | `JUMPIN_COOLDOWN_SECONDS` | Minimum seconds between jump-in attempts per channel — a backstop so a fast burst can't trigger checks back-to-back once the count resets (default: `300`) |
 | `LORE_SUMMARIZE_GAP_MINUTES` | Default silence gap (minutes) marking a conversation boundary for `!lore summarize` — overridable per-command, see below (default: `30`) |

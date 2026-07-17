@@ -22,6 +22,7 @@ class FunCog(commands.Cog, name="Fun"):
         self._ttl = timedelta(hours=1)
         self._jumpin_cooldowns: dict = {}
         self._jumpin_message_counts: dict = {}
+        self._jumpin_enabled          = os.getenv("JUMPIN_ENABLED", "true").lower() == "true"
         self._jumpin_message_interval = int(os.getenv("JUMPIN_MESSAGE_INTERVAL", "10"))
         self._jumpin_cooldown         = timedelta(seconds=int(os.getenv("JUMPIN_COOLDOWN_SECONDS", "300")))
 
@@ -42,6 +43,9 @@ class FunCog(commands.Cog, name="Fun"):
         ]
 
         if not is_mention:
+            if not self._jumpin_enabled:
+                return
+
             now          = datetime.now(timezone.utc)
             next_allowed = self._jumpin_cooldowns.get(message.channel.id)
             if next_allowed and now < next_allowed:
