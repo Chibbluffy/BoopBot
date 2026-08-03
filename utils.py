@@ -9,7 +9,7 @@ pool: asyncpg.Pool = None  # assigned in bot.main() before cogs load
 http: aiohttp.ClientSession = None  # assigned in bot.main() before cogs load
 
 # ── Env-derived constants ──────────────────────────────────────────────────────
-NOTIFY_CHANNEL       = 'looking-for-group'
+NOTIFY_CHANNEL_ID    = int(os.getenv("NOTIFY_CHANNEL_ID", "0"))
 GUILD_MEMBER_ROLE_ID = int(os.getenv("GUILD_MEMBER_ROLE_ID", "0"))
 BRAIN_BASE_URL       = os.getenv("BRAIN_BASE_URL", "http://10.8.0.200:8000")
 BRAIN_SHARED_SECRET  = os.getenv("BRAIN_SHARED_SECRET", "")

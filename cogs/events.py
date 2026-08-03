@@ -908,7 +908,7 @@ class EventsCog(commands.Cog, name="Events"):
         try:
             now = datetime.now(timezone.utc)
             for guild in self.bot.guilds:
-                remind_channel = discord.utils.get(guild.text_channels, name=utils.NOTIFY_CHANNEL)
+                remind_channel = guild.get_channel(utils.NOTIFY_CHANNEL_ID)
 
                 if remind_channel:
                     for event in await guild.fetch_scheduled_events():
@@ -927,7 +927,7 @@ class EventsCog(commands.Cog, name="Events"):
                             print(f"Error processing event {event.id}: {e}")
 
                 try:
-                    rc = discord.utils.get(guild.text_channels, name=utils.NOTIFY_CHANNEL)
+                    rc = guild.get_channel(utils.NOTIFY_CHANNEL_ID)
                     if rc:
                         rows = await utils.pool.fetch("""
                             SELECT ce.title,
